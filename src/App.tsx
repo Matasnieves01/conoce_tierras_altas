@@ -51,6 +51,57 @@ const packages: PackageInfo[] = [
   },
 ];
 
+const safariPackages: PackageInfo[] = [
+  {
+    id: "finca-mi-finquita",
+    icon: "☕",
+    title: "Finca Cafetal Mi Finquita",
+    price: "150$",
+    description: "Una inmersión exclusiva en los cafetales y procesos de café de especialidad en Mi Finquita.",
+    includes: [
+      "Transporte 4x4 especializado",
+      "Recorrido guiado por cafetales de altura",
+      "Demostración del proceso de beneficio y secado",
+      "Cata privada de café Geisha guiada por barista",
+      "Snack campestre y café de cortesía",
+    ],
+    image: paquete2,
+    className: "package-card--safari-one",
+  },
+  {
+    id: "finca-santos-cafe",
+    icon: "🚙",
+    title: "Finca Santos Café",
+    price: "135$",
+    description: "Aventura en 4x4 cruzando senderos cafetaleros con paradas en miradores y degustación en Finca Santos.",
+    includes: [
+      "Ruta todoterreno 4x4 por fincas cafetaleras",
+      "Paradas fotográficas en miradores del Volcán Barú",
+      "Degustación de café filtrado al aire libre",
+      "Almuerzo típico gourmet",
+      "Hidratación durante todo el recorrido",
+    ],
+    image: paquete3,
+    className: "package-card--safari-two",
+  },
+  {
+    id: "finca-santa-teresa",
+    icon: "✦",
+    title: "Finca Santa Teresa",
+    price: "195$",
+    description: "Experiencia de clase mundial en Finca Santa Teresa con tueste artesanal y cata sensorial.",
+    includes: [
+      "Taller interactivo de tueste artesanal en vivo",
+      "Cata sensorial de diferentes varietales de café",
+      "Preparación en métodos de filtrado (V60, Chemex, Aeropress)",
+      "Almuerzo maridado y postre de la casa",
+      "Muestra de café recién tostado de regalo",
+    ],
+    image: paquete1,
+    className: "package-card--safari-three",
+  },
+];
+
 function App() {
   const [isHeaderHidden, setIsHeaderHidden] = useState(false);
   const [selectedPackage, setSelectedPackage] = useState<PackageInfo | null>(null);
@@ -99,6 +150,7 @@ function App() {
             <li><a href="#inicio">Inicio</a></li>
             <li><a href="#destinos">Qué encontrarás</a></li>
             <li><a href="#experiencia">Nuestros paquetes</a></li>
+            <li><a href="#safari-coffee">Safari Premium Coffee</a></li>
             <li><a href="#contacto">Sobre nosotros</a></li>
           </ul>
         </nav>
@@ -148,7 +200,46 @@ function App() {
                   <div className="package-card__logo" aria-hidden="true">{pkg.icon}</div>
                   <div className="package-card__heading">
                     <h3>{pkg.title}</h3>
-                    <strong>{pkg.price}</strong>
+                    <div className="package-card__price-box">
+                      <strong className="package-card__price">{pkg.price}</strong>
+                      <span className="package-card__per-person">por persona</span>
+                    </div>
+                  </div>
+                  <p>{pkg.description}</p>
+                  <div className="package-card__details">
+                    <h4>Incluye</h4>
+                    <ul>
+                      {pkg.includes.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                    <button
+                      className="package-card__reserve"
+                      onClick={() => handleReserve(pkg)}
+                    >
+                      Reservar ahora
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </Section>
+
+          <Section
+            id="safari-coffee"
+            title="Safari Premium Coffee"
+            description="Descubre experiencias exclusivas en 4x4 por las mejores fincas cafeteras, degustando cosechas especiales y catas de café de altura."
+          >
+            <div className="packages-grid">
+              {safariPackages.map((pkg) => (
+                <article key={pkg.id} className={`package-card ${pkg.className}`} tabIndex={0}>
+                  <div className="package-card__logo" aria-hidden="true">{pkg.icon}</div>
+                  <div className="package-card__heading">
+                    <h3>{pkg.title}</h3>
+                    <div className="package-card__price-box">
+                      <strong className="package-card__price">{pkg.price}</strong>
+                      <span className="package-card__per-person">por persona</span>
+                    </div>
                   </div>
                   <p>{pkg.description}</p>
                   <div className="package-card__details">

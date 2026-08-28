@@ -28,7 +28,10 @@ function PackageDetail({ pkg, onBack }: PackageDetailProps) {
         <div className="package-detail__hero-overlay">
           <p className="hero__eyebrow">{pkg.icon} Paquete</p>
           <h1>{pkg.title}</h1>
-          <strong className="package-detail__price">{pkg.price}</strong>
+          <div className="package-detail__price-box">
+            <strong className="package-detail__price">{pkg.price}</strong>
+            <span className="package-detail__per-person">por persona</span>
+          </div>
         </div>
       </div>
 
