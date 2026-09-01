@@ -6,6 +6,8 @@ import logo from "./assets/logo.png";
 import paquete1 from "./assets/Paquete1.jpg";
 import paquete2 from "./assets/Paquete2.jpg";
 import paquete3 from "./assets/Paquete3.jpg";
+import CheckoutPage from "./components/CheckoutPage";
+import { canAddReservation } from "./utils/reservationValidation";
 
 const packages: PackageInfo[] = [
   {
@@ -226,6 +228,7 @@ function App() {
   const [selectedPackage, setSelectedPackage] = useState<PackageInfo | null>(null);
   const [reservations, setReservations] = useState<ReservationItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
+  const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
 
   useEffect(() => {
     let lastScrollY = window.scrollY;
@@ -272,7 +275,19 @@ function App() {
     }, 60);
   };
 
-  const handleAddReservationItem = (item: ReservationItem) => {
+  const handleAddReservationItem = (item: ReservationItem): boolean => {
+    const isValid = canAddReservation(
+      reservations,
+      {
+        packageId: item.packageId,
+        date: item.date,
+      },
+    );
+
+    if (!isValid) {
+      return false;
+    }
+
     setReservations((prev) => {
       const existsIndex = prev.findIndex((r) => r.packageId === item.packageId);
       if (existsIndex >= 0) {
@@ -282,6 +297,8 @@ function App() {
       }
       return [...prev, item];
     });
+
+    return true;
   };
 
   const handleRemoveReservationItem = (packageId: string) => {
@@ -290,16 +307,11 @@ function App() {
 
   const totalCartPrice = reservations.reduce((sum, item) => sum + item.totalPrice, 0);
 
-  const handleConfirmWhatsAppCart = () => {
+  const handleGoToCheckout = () => {
     if (reservations.length === 0) return;
-
-    let message = "¡Hola Conoce Tierras Altas! 🌿 Deseo confirmar la reserva de los siguientes paquetes:\n\n";
-    reservations.forEach((item, idx) => {
-      message += `${idx + 1}. *${item.packageTitle}*\n   📅 Fecha: ${item.displayDate || item.date}\n   👥 Personas: ${item.peopleCount}\n   💰 Subtotal: ${item.totalPrice}$\n\n`;
-    });
-    message += `*Total estimado de la reserva:* $${totalCartPrice}\n\n¿Me podrían brindar los detalles para completar el pago y confirmación? ¡Muchas gracias!`;
-
-    window.open(`https://wa.me/50760000000?text=${encodeURIComponent(message)}`, "_blank");
+    setIsCartOpen(false);
+    setIsCheckoutOpen(true);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   return (
@@ -365,13 +377,25 @@ function App() {
         </button>
       </header>
 
-      {selectedPackage ? (
+      {isCheckoutOpen ? (
+        <CheckoutPage
+          reservations={reservations}
+          allPackages={allAvailablePackages}
+          onBack={() => setIsCheckoutOpen(false)}
+          onUpdateReservations={(updated) => {
+            setReservations(updated);
+            setIsCheckoutOpen(false);
+            setIsCartOpen(false);
+          }}
+        />
+      ) : selectedPackage ? (
         <PackageDetail
           pkg={selectedPackage}
           allPackages={allAvailablePackages}
           onSelectPackage={handleReserve}
           onBack={handleBack}
           onAddReservation={handleAddReservationItem}
+          existingReservations={reservations}
         />
       ) : (
         <>
@@ -614,9 +638,9 @@ function App() {
                   <button
                     type="button"
                     className="btn btn--primary btn--full cart-confirm-btn"
-                    onClick={handleConfirmWhatsAppCart}
+                    onClick={handleGoToCheckout}
                   >
-                    Confirmar mi reserva por WhatsApp 💬
+                    Ir al checkout →
                   </button>
                   <button
                     type="button"
