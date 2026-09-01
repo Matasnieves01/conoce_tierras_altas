@@ -94,7 +94,7 @@ export function CheckoutPage({
       setRegistrationCode(randomCode);
       setIsSubmitting(false);
       setStep("success");
-      onUpdateReservations([]); // Clear cart after successful checkout registration
+      onUpdateReservations(reservations);
       window.scrollTo({ top: 0, behavior: "smooth" });
     }, 1500);
   };

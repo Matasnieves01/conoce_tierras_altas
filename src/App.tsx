@@ -9,6 +9,18 @@ import paquete3 from "./assets/Paquete3.jpg";
 import CheckoutPage from "./components/CheckoutPage";
 import { canAddReservation } from "./utils/reservationValidation";
 
+const STORAGE_KEY = "conocetierrasaltas-confirmed-bookings";
+const ADMIN_STORAGE_KEY = "conocetierrasaltas-admin-access";
+const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD || "tierrasaltas-admin";
+
+type AdminReservationStatus = "pendiente" | "aprobado" | "cancelado";
+
+interface AdminReservation extends ReservationItem {
+  id: string;
+  status: AdminReservationStatus;
+  createdAt: string;
+}
+
 const packages: PackageInfo[] = [
   {
     id: "finca-la-suiza",
@@ -227,8 +239,18 @@ function App() {
   const [isHeaderHidden, setIsHeaderHidden] = useState(false);
   const [selectedPackage, setSelectedPackage] = useState<PackageInfo | null>(null);
   const [reservations, setReservations] = useState<ReservationItem[]>([]);
+  const [confirmedReservations, setConfirmedReservations] = useState<AdminReservation[]>(() => {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    return stored ? JSON.parse(stored) : [];
+  });
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+  const [isAdminView, setIsAdminView] = useState(() => {
+    const path = window.location.pathname;
+    return path === "/admin" || sessionStorage.getItem(ADMIN_STORAGE_KEY) === "true";
+  });
+  const [adminPassword, setAdminPassword] = useState("");
+  const [adminError, setAdminError] = useState("");
 
   useEffect(() => {
     let lastScrollY = window.scrollY;
@@ -249,6 +271,25 @@ function App() {
 
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(confirmedReservations));
+  }, [confirmedReservations]);
+
+  useEffect(() => {
+    const isAllowed = sessionStorage.getItem(ADMIN_STORAGE_KEY) === "true";
+    const isAdminRoute = window.location.pathname === "/admin";
+
+    if (isAllowed || isAdminRoute) {
+      setIsAdminView(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (window.location.pathname === "/admin") {
+      sessionStorage.setItem(ADMIN_STORAGE_KEY, "true");
+    }
+  }, [isAdminView]);
 
   const handleReserve = (pkg: PackageInfo) => {
     setSelectedPackage(pkg);
@@ -314,6 +355,88 @@ function App() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  const handleAdminLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (adminPassword === ADMIN_PASSWORD) {
+      sessionStorage.setItem(ADMIN_STORAGE_KEY, "true");
+      window.history.pushState({}, "", "/admin");
+      setIsAdminView(true);
+      setAdminError("");
+      setAdminPassword("");
+      return;
+    }
+
+    setAdminError("Contraseña incorrecta. Intenta nuevamente.");
+  };
+
+  const handleAdminLogout = () => {
+    sessionStorage.removeItem(ADMIN_STORAGE_KEY);
+    window.history.pushState({}, "", "/");
+    setIsAdminView(false);
+  };
+
+  const addConfirmedReservations = (items: ReservationItem[]) => {
+    const nextRecords = items.map((item) => ({
+      ...item,
+      id: `${item.packageId}-${item.date}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+      status: "pendiente" as const,
+      createdAt: new Date().toISOString(),
+    }));
+
+    setConfirmedReservations((prev) => [...prev, ...nextRecords]);
+  };
+
+  const updateReservationStatus = (id: string, status: AdminReservationStatus) => {
+    setConfirmedReservations((prev) =>
+      prev.map((reservation) =>
+        reservation.id === id ? { ...reservation, status } : reservation,
+      ),
+    );
+  };
+
+  const updateReservationData = (id: string, nextDate: string, nextPeopleCount: number) => {
+    setConfirmedReservations((prev) => {
+      const target = prev.find((reservation) => reservation.id === id);
+      if (!target) return prev;
+
+      const hasConflict = prev.some(
+        (reservation) =>
+          reservation.id !== id &&
+          reservation.packageId !== target.packageId &&
+          reservation.date === nextDate,
+      );
+
+      if (hasConflict) {
+        alert("No se puede asignar esa fecha porque ya existe otra reserva en ese mismo día.");
+        return prev;
+      }
+
+      const updatedPrice = target.pricePerPerson * nextPeopleCount;
+
+      return prev.map((reservation) =>
+        reservation.id === id
+          ? {
+              ...reservation,
+              date: nextDate,
+              displayDate: new Date(`${nextDate}T12:00:00`).toLocaleDateString("es-ES", {
+                weekday: "long",
+                year: "numeric",
+                month: "long",
+                day: "numeric",
+              }),
+              peopleCount: nextPeopleCount,
+              totalPrice: updatedPrice,
+            }
+          : reservation,
+      );
+    });
+  };
+
+  const handleAdminDeleteReservation = (id: string) => {
+    setConfirmedReservations((prev) => prev.filter((reservation) => reservation.id !== id));
+  };
+
   return (
     <main className="page">
       <header className={`site-header${isHeaderHidden ? " site-header--hidden" : ""}`}>
@@ -377,13 +500,92 @@ function App() {
         </button>
       </header>
 
-      {isCheckoutOpen ? (
+      {isAdminView ? (
+        <div style={{ maxWidth: "1200px", margin: "2rem auto", padding: "0 1rem" }}>
+          {!sessionStorage.getItem(ADMIN_STORAGE_KEY) ? (
+            <div className="checkout-card" style={{ background: "#fff", borderRadius: "16px", padding: "2rem", boxShadow: "0 10px 30px rgba(0,0,0,0.08)" }}>
+              <h2>Acceso administrativo</h2>
+              <p style={{ color: "#555", marginBottom: "1rem" }}>Ingresa la contraseña para revisar y gestionar reservas.</p>
+              <form onSubmit={handleAdminLogin}>
+                <input
+                  type="password"
+                  value={adminPassword}
+                  onChange={(e) => setAdminPassword(e.target.value)}
+                  placeholder="Contraseña del administrador"
+                  style={{ width: "100%", padding: "0.8rem", borderRadius: "8px", border: "1px solid #ccc", marginBottom: "1rem" }}
+                />
+                {adminError && <p style={{ color: "#b42318", marginBottom: "1rem" }}>{adminError}</p>}
+                <button type="submit" className="btn btn--primary">Entrar al panel</button>
+              </form>
+            </div>
+          ) : (
+            <div className="checkout-card" style={{ background: "#fff", borderRadius: "16px", padding: "2rem", boxShadow: "0 10px 30px rgba(0,0,0,0.08)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "1rem", marginBottom: "1.5rem", flexWrap: "wrap" }}>
+                <div>
+                  <span className="about-section__eyebrow">Panel de administración</span>
+                  <h2 style={{ margin: "0.4rem 0 0" }}>Reservas y pagos</h2>
+                </div>
+                <button type="button" className="btn btn--secondary" onClick={handleAdminLogout}>Cerrar sesión</button>
+              </div>
+
+              {confirmedReservations.length === 0 ? (
+                <p style={{ color: "#555" }}>No hay reservas confirmadas todavía.</p>
+              ) : (
+                <div style={{ display: "grid", gap: "1rem" }}>
+                  {confirmedReservations.map((reservation) => (
+                    <div key={reservation.id} style={{ border: "1px solid #e5e7eb", borderRadius: "12px", padding: "1rem", background: "#f9fafb" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap" }}>
+                        <div>
+                          <h3 style={{ margin: 0 }}>{reservation.packageTitle}</h3>
+                          <p style={{ margin: "0.35rem 0", color: "#475467" }}>📅 {reservation.displayDate || reservation.date} · 👥 {reservation.peopleCount} personas</p>
+                          <p style={{ margin: 0, color: "#475467" }}>💰 ${reservation.totalPrice}</p>
+                        </div>
+                        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+                          <span style={{ background: reservation.status === "aprobado" ? "#dcfce7" : reservation.status === "cancelado" ? "#fee2e2" : "#e0f2fe", padding: "0.4rem 0.7rem", borderRadius: "999px", fontSize: "0.75rem", fontWeight: 700, color: "#0f172a" }}>
+                            {reservation.status}
+                          </span>
+                          <button type="button" className="btn btn--secondary" onClick={() => updateReservationStatus(reservation.id, "aprobado")}>Aprobar</button>
+                          <button type="button" className="btn btn--secondary" onClick={() => updateReservationStatus(reservation.id, "cancelado")}>Cancelar</button>
+                          <button type="button" className="btn btn--secondary" onClick={() => handleAdminDeleteReservation(reservation.id)}>Eliminar</button>
+                        </div>
+                      </div>
+
+                      <div style={{ marginTop: "1rem", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+                        <div>
+                          <label style={{ display: "block", marginBottom: "0.3rem", fontWeight: 600 }}>Fecha</label>
+                          <input
+                            type="date"
+                            value={reservation.date}
+                            onChange={(e) => updateReservationData(reservation.id, e.target.value, reservation.peopleCount)}
+                            style={{ width: "100%", padding: "0.7rem", borderRadius: "8px", border: "1px solid #ccc" }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ display: "block", marginBottom: "0.3rem", fontWeight: 600 }}>Personas</label>
+                          <input
+                            type="number"
+                            min={2}
+                            value={reservation.peopleCount}
+                            onChange={(e) => updateReservationData(reservation.id, reservation.date, Number(e.target.value) || 2)}
+                            style={{ width: "100%", padding: "0.7rem", borderRadius: "8px", border: "1px solid #ccc" }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      ) : isCheckoutOpen ? (
         <CheckoutPage
           reservations={reservations}
           allPackages={allAvailablePackages}
           onBack={() => setIsCheckoutOpen(false)}
           onUpdateReservations={(updated) => {
-            setReservations(updated);
+            setReservations([]);
+            addConfirmedReservations(updated);
             setIsCheckoutOpen(false);
             setIsCartOpen(false);
           }}
@@ -550,7 +752,7 @@ function App() {
         </>
       )}
 
-      {isCartOpen && (
+      {!isAdminView && isCartOpen && (
         <div className="cart-modal-backdrop" onClick={() => setIsCartOpen(false)}>
           <div
             className="cart-modal"
