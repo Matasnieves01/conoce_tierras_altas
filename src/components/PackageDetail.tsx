@@ -39,7 +39,8 @@ interface PackageDetailProps {
   allPackages: PackageInfo[];
   onSelectPackage: (pkg: PackageInfo) => void;
   onBack: () => void;
-  onAddReservation?: (res: ReservationItem) => void;
+  onAddReservation?: (res: ReservationItem) => boolean | void;
+  existingReservations?: ReservationItem[];
 }
 
 const MONTH_NAMES = [
@@ -55,6 +56,7 @@ export function PackageDetail({
   onSelectPackage,
   onBack,
   onAddReservation,
+  existingReservations = [],
 }: PackageDetailProps) {
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState<number>(0);
   const [isGalleryPaused, setIsGalleryPaused] = useState<boolean>(false);
@@ -148,8 +150,18 @@ export function PackageDetail({
     }
   };
 
+  const isReservedDateForOtherPackage = (day: number) => {
+    const formattedMonth = String(calendarMonth + 1).padStart(2, "0");
+    const formattedDay = String(day).padStart(2, "0");
+    const dateString = `${calendarYear}-${formattedMonth}-${formattedDay}`;
+
+    return existingReservations.some(
+      (reservation) => reservation.packageId !== pkg.id && reservation.date === dateString,
+    );
+  };
+
   const handleSelectDay = (day: number) => {
-    if (isDatePast(day) || isDateBooked(day)) return;
+    if (isDatePast(day) || isDateBooked(day) || isReservedDateForOtherPackage(day)) return;
     const formattedMonth = String(calendarMonth + 1).padStart(2, "0");
     const formattedDay = String(day).padStart(2, "0");
     setSelectedDate(`${calendarYear}-${formattedMonth}-${formattedDay}`);
@@ -169,24 +181,44 @@ export function PackageDetail({
   };
 
   const handleAddReservation = () => {
-    setIsReserved(true);
+    const hasConflict = existingReservations.some(
+      (reservation) =>
+        reservation.packageId !== pkg.id && reservation.date === selectedDate,
+    );
+
+    if (hasConflict) {
+      setIsReserved(false);
+      setReservationMessage(
+        `Ya tienes un paquete reservado para el día ${formatDisplayDate(selectedDate)}. Elige otra fecha para continuar con la reserva.`
+      );
+      return;
+    }
+
     const displayDateStr = formatDisplayDate(selectedDate);
+    const result = onAddReservation?.({
+      packageId: pkg.id,
+      packageTitle: pkg.title,
+      packageIcon: pkg.icon,
+      packageImage: pkg.image,
+      pricePerPerson: unitPrice,
+      peopleCount: peopleCount,
+      totalPrice: totalPrice,
+      date: selectedDate,
+      displayDate: displayDateStr,
+    });
+
+    if (result === false) {
+      setIsReserved(false);
+      setReservationMessage(
+        `Ya existe una reserva en esta fecha. Elige otra fecha para reservar "${pkg.title}".`
+      );
+      return;
+    }
+
+    setIsReserved(true);
     setReservationMessage(
       `¡Excelente elección! Hemos agregado "${pkg.title}" para ${peopleCount} personas el ${displayDateStr} a tu reserva.`
     );
-    if (onAddReservation) {
-      onAddReservation({
-        packageId: pkg.id,
-        packageTitle: pkg.title,
-        packageIcon: pkg.icon,
-        packageImage: pkg.image,
-        pricePerPerson: unitPrice,
-        peopleCount: peopleCount,
-        totalPrice: totalPrice,
-        date: selectedDate,
-        displayDate: displayDateStr,
-      });
-    }
   };
 
   const handleWhatsAppBooking = () => {
@@ -508,7 +540,9 @@ export function PackageDetail({
                     {Array.from({ length: totalDays }).map((_, idx) => {
                       const day = idx + 1;
                       const isPast = isDatePast(day);
-                      const isBooked = !isPast && isDateBooked(day);
+                      const isBookedBySystem = !isPast && isDateBooked(day);
+                      const isBookedByOtherPackage = !isPast && isReservedDateForOtherPackage(day);
+                      const isBooked = isBookedBySystem || isBookedByOtherPackage;
                       const formattedMonth = String(calendarMonth + 1).padStart(2, "0");
                       const formattedDay = String(day).padStart(2, "0");
                       const dateString = `${calendarYear}-${formattedMonth}-${formattedDay}`;
@@ -518,9 +552,6 @@ export function PackageDetail({
                       if (isPast) {
                         cellClass += " calendar-day--past";
                       } else if (isBooked) {
-                        cellClass += " calendar-day--booked";
-                      } else {
-                        cellClass += " calendar-day--available";
                       }
 
                       if (isSelected) {
@@ -538,7 +569,7 @@ export function PackageDetail({
                             isPast
                               ? "Fecha pasada"
                               : isBooked
-                              ? "No disponible (Fecha con reservación)"
+                              ? "No disponible (ya hay otra reserva en este día)"
                               : "Disponible para reservar"
                           }
                         >
