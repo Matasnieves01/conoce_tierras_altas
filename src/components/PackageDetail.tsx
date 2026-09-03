@@ -39,6 +39,7 @@ interface PackageDetailProps {
   allPackages: PackageInfo[];
   onSelectPackage: (pkg: PackageInfo) => void;
   onBack: () => void;
+  onViewReservations?: () => void;
   onAddReservation?: (res: ReservationItem) => boolean | void;
   existingReservations?: ReservationItem[];
 }
@@ -55,6 +56,7 @@ export function PackageDetail({
   allPackages,
   onSelectPackage,
   onBack,
+  onViewReservations,
   onAddReservation,
   existingReservations = [],
 }: PackageDetailProps) {
@@ -219,13 +221,6 @@ export function PackageDetail({
     setReservationMessage(
       `¡Excelente elección! Hemos agregado "${pkg.title}" para ${peopleCount} personas el ${displayDateStr} a tu reserva.`
     );
-  };
-
-  const handleWhatsAppBooking = () => {
-    const text = encodeURIComponent(
-      `¡Hola Conoce Tierras Altas! Deseo confirmar la reserva del paquete "${pkg.title}" para ${peopleCount} persona(s) en la fecha disponible: ${formatDisplayDate(selectedDate)}. Total estimado: ${totalPrice}$.`
-    );
-    window.open(`https://wa.me/50760000000?text=${text}`, "_blank");
   };
 
   return (
@@ -627,12 +622,22 @@ export function PackageDetail({
                   <div className="success-icon">🎉</div>
                   <h4>¡Paquete agregado a tu reserva!</h4>
                   <p>{reservationMessage}</p>
-                  <button
-                    className="btn btn--primary btn--full"
-                    onClick={handleWhatsAppBooking}
-                  >
-                    Confirmar por WhatsApp 💬
-                  </button>
+                  <div style={{ display: "grid", gap: "0.75rem" }}>
+                    <button
+                      type="button"
+                      className="btn btn--primary btn--full"
+                      onClick={onViewReservations}
+                    >
+                      Ver mi reserva 🛒
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--secondary btn--full"
+                      onClick={onBack}
+                    >
+                      Agregar otro paquete +
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <button
