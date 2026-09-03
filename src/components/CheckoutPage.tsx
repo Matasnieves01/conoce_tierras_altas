@@ -1,11 +1,12 @@
 import React, { useState } from "react";
 import type { ReservationItem, PackageInfo } from "./PackageDetail";
+import { supabase } from "../lib/supabase";
 
 interface CheckoutPageProps {
   reservations: ReservationItem[];
   allPackages: PackageInfo[];
   onBack: () => void;
-  onUpdateReservations: (updated: ReservationItem[]) => void;
+  onUpdateReservations: (updated: ReservationItem[]) => void | Promise<void>;
 }
 
 interface AttendeeInfo {
@@ -79,7 +80,7 @@ export function CheckoutPage({
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const handleFinalSubmit = (e: React.FormEvent) => {
+  const handleFinalSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!receiptFile) {
       alert("Por favor adjunta la captura o comprobante de tu pago por Yappy o Transferencia.");
@@ -87,16 +88,36 @@ export function CheckoutPage({
     }
 
     setIsSubmitting(true);
-    
-    // Simulate API registration & generating secure verification code for admin review
-    setTimeout(() => {
-      const randomCode = "CTA-" + Math.floor(100000 + Math.random() * 900000);
-      setRegistrationCode(randomCode);
+
+    const reservationRows = reservations.map((item) => ({
+      package_id: item.packageId,
+      package_title: item.packageTitle,
+      client_name: attendeesMap[item.packageId]?.[0]?.fullName.trim() || "Cliente",
+      client_email: clientEmail.trim(),
+      client_phone: clientPhone.trim(),
+      people_count: item.peopleCount,
+      reservation_date: item.date,
+      total_price: item.totalPrice,
+      status: "pendiente",
+      payment_method: selectedMethod,
+      document_id: attendeesMap[item.packageId]?.[0]?.documentId.trim() || "",
+    }));
+
+    const { error } = await supabase.from("reservations").insert(reservationRows);
+
+    if (error) {
+      console.error("Error guardando la reserva en Supabase:", error);
       setIsSubmitting(false);
-      setStep("success");
-      onUpdateReservations(reservations);
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    }, 1500);
+      alert("No pudimos registrar la reserva. Verifica la conexión e inténtalo nuevamente.");
+      return;
+    }
+
+    const randomCode = "CTA-" + Math.floor(100000 + Math.random() * 900000);
+    setRegistrationCode(randomCode);
+    setIsSubmitting(false);
+    setStep("success");
+    await onUpdateReservations(reservations);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   if (reservations.length === 0 && step !== "success") {

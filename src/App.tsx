@@ -8,10 +8,8 @@ import paquete2 from "./assets/Paquete2.jpg";
 import paquete3 from "./assets/Paquete3.jpg";
 import CheckoutPage from "./components/CheckoutPage";
 import { canAddReservation } from "./utils/reservationValidation";
-
-const STORAGE_KEY = "conocetierrasaltas-confirmed-bookings";
-const ADMIN_STORAGE_KEY = "conocetierrasaltas-admin-access";
-const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD || "tierrasaltas-admin";
+import { supabase } from "./lib/supabase";
+import type { Session } from "@supabase/supabase-js";
 
 type AdminReservationStatus = "pendiente" | "aprobado" | "cancelado";
 
@@ -233,24 +231,100 @@ const safariPackages: PackageInfo[] = [
   },
 ];
 
-const allAvailablePackages: PackageInfo[] = [...packages, ...safariPackages];
+interface PackageRow {
+  id: string;
+  icon: string | null;
+  title: string;
+  price: number;
+  category: string | null;
+  description: string | null;
+  long_description: string | null;
+  duration: string | null;
+  difficulty: string | null;
+  location: string | null;
+  includes: string[] | null;
+  highlights: string[] | null;
+  image: string | null;
+  gallery: string[] | null;
+  class_name: string | null;
+}
+
+const localPackageById = new Map(
+  [...packages, ...safariPackages].map((pkg) => [pkg.id, pkg]),
+);
+
+const getPackageAsset = (asset: string | null, fallback: string): string => {
+  if (!asset) return fallback;
+  if (asset.startsWith("http") || asset.startsWith("/")) return asset;
+
+  const assetByName: Record<string, string> = {
+    "Paquete1.jpg": paquete1,
+    "Paquete2.jpg": paquete2,
+    "Paquete3.jpg": paquete3,
+  };
+
+  return assetByName[asset] || fallback;
+};
+
+const mapPackageRow = (row: PackageRow): PackageInfo => {
+  const localPackage = localPackageById.get(row.id);
+  const image = getPackageAsset(row.image, localPackage?.image || paquete1);
+
+  return {
+    id: row.id,
+    icon: row.icon || localPackage?.icon || "✦",
+    title: row.title,
+    price: `${row.price}$`,
+    numericPrice: row.price,
+    category: row.category || localPackage?.category,
+    description: row.description || "Descubre una experiencia inolvidable en Tierras Altas.",
+    longDescription: row.long_description || undefined,
+    duration: row.duration || undefined,
+    difficulty: row.difficulty || undefined,
+    location: row.location || undefined,
+    includes: row.includes || [],
+    highlights: row.highlights || [],
+    image,
+    gallery: (row.gallery || []).map((asset) => getPackageAsset(asset, image)),
+    className: row.class_name || localPackage?.className || "package-card--one",
+  };
+};
 
 function App() {
   const [isHeaderHidden, setIsHeaderHidden] = useState(false);
   const [selectedPackage, setSelectedPackage] = useState<PackageInfo | null>(null);
   const [reservations, setReservations] = useState<ReservationItem[]>([]);
-  const [confirmedReservations, setConfirmedReservations] = useState<AdminReservation[]>(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? JSON.parse(stored) : [];
-  });
+  const [confirmedReservations, setConfirmedReservations] = useState<AdminReservation[]>([]);
+  const [availablePackages, setAvailablePackages] = useState<PackageInfo[]>([]);
+  const [packagesLoading, setPackagesLoading] = useState(true);
+  const [packagesError, setPackagesError] = useState("");
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
-  const [isAdminView, setIsAdminView] = useState(() => {
-    const path = window.location.pathname;
-    return path === "/admin" || sessionStorage.getItem(ADMIN_STORAGE_KEY) === "true";
-  });
+  const [isAdminView, setIsAdminView] = useState(() => window.location.pathname === "/admin");
+  const [adminSession, setAdminSession] = useState<Session | null>(null);
+  const [adminEmail, setAdminEmail] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
   const [adminError, setAdminError] = useState("");
+
+  useEffect(() => {
+    const loadPackages = async () => {
+      const { data, error } = await supabase
+        .from("packages")
+        .select("*")
+        .order("created_at", { ascending: true });
+
+      if (error) {
+        console.error("Error cargando paquetes:", error);
+        setPackagesError("No pudimos cargar los paquetes disponibles.");
+      } else {
+        setAvailablePackages((data as PackageRow[]).map(mapPackageRow));
+      }
+
+      setPackagesLoading(false);
+    };
+
+    loadPackages();
+  }, []);
 
   useEffect(() => {
     let lastScrollY = window.scrollY;
@@ -273,23 +347,65 @@ function App() {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(confirmedReservations));
-  }, [confirmedReservations]);
+    const loadAdminSession = async () => {
+      const { data } = await supabase.auth.getSession();
+      setAdminSession(data.session);
+    };
 
-  useEffect(() => {
-    const isAllowed = sessionStorage.getItem(ADMIN_STORAGE_KEY) === "true";
-    const isAdminRoute = window.location.pathname === "/admin";
+    loadAdminSession();
 
-    if (isAllowed || isAdminRoute) {
-      setIsAdminView(true);
-    }
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAdminSession(session);
+    });
+
+    return () => authListener.subscription.unsubscribe();
   }, []);
 
   useEffect(() => {
-    if (window.location.pathname === "/admin") {
-      sessionStorage.setItem(ADMIN_STORAGE_KEY, "true");
-    }
-  }, [isAdminView]);
+    const loadReservations = async () => {
+      if (!adminSession) return;
+
+      const { data, error } = await supabase
+        .from("reservations")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error("Error cargando reservas:", error);
+        return;
+      }
+
+      setConfirmedReservations((data ?? []).map((reservation) => ({
+        id: String(reservation.id),
+        packageId: reservation.package_id,
+        packageTitle: reservation.package_title,
+        packageIcon: "",
+        packageImage: "",
+        pricePerPerson: reservation.total_price / reservation.people_count,
+        peopleCount: reservation.people_count,
+        totalPrice: reservation.total_price,
+        date: reservation.reservation_date,
+        displayDate: new Date(`${reservation.reservation_date}T12:00:00`).toLocaleDateString("es-ES", {
+          weekday: "long",
+          year: "numeric",
+          month: "long",
+          day: "numeric",
+        }),
+        status: reservation.status as AdminReservationStatus,
+        createdAt: reservation.created_at,
+      })));
+    };
+
+    loadReservations();
+  }, [adminSession]);
+
+  const allAvailablePackages = availablePackages;
+  const regularPackages = availablePackages.filter(
+    (pkg) => pkg.category !== "Safari Premium Coffee",
+  );
+  const premiumPackages = availablePackages.filter(
+    (pkg) => pkg.category === "Safari Premium Coffee",
+  );
 
   const handleReserve = (pkg: PackageInfo) => {
     setSelectedPackage(pkg);
@@ -355,47 +471,46 @@ function App() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const handleAdminLogin = (e: React.FormEvent) => {
+  const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (adminPassword === ADMIN_PASSWORD) {
-      sessionStorage.setItem(ADMIN_STORAGE_KEY, "true");
+    const { error } = await supabase.auth.signInWithPassword({
+      email: adminEmail.trim(),
+      password: adminPassword,
+    });
+
+    if (!error) {
       window.history.pushState({}, "", "/admin");
       setIsAdminView(true);
       setAdminError("");
+      setAdminEmail("");
       setAdminPassword("");
       return;
     }
 
-    setAdminError("Contraseña incorrecta. Intenta nuevamente.");
+    setAdminError("Correo o contraseña incorrectos.");
   };
 
-  const handleAdminLogout = () => {
-    sessionStorage.removeItem(ADMIN_STORAGE_KEY);
+  const handleAdminLogout = async () => {
+    await supabase.auth.signOut();
     window.history.pushState({}, "", "/");
     setIsAdminView(false);
   };
 
-  const addConfirmedReservations = (items: ReservationItem[]) => {
-    const nextRecords = items.map((item) => ({
-      ...item,
-      id: `${item.packageId}-${item.date}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
-      status: "pendiente" as const,
-      createdAt: new Date().toISOString(),
-    }));
+  const updateReservationStatus = async (id: string, status: AdminReservationStatus) => {
+    const { error } = await supabase.from("reservations").update({ status }).eq("id", id);
 
-    setConfirmedReservations((prev) => [...prev, ...nextRecords]);
+    if (error) {
+      alert("No se pudo actualizar el estado de la reserva.");
+      return;
+    }
+
+    setConfirmedReservations((prev) => prev.map((reservation) =>
+      reservation.id === id ? { ...reservation, status } : reservation,
+    ));
   };
 
-  const updateReservationStatus = (id: string, status: AdminReservationStatus) => {
-    setConfirmedReservations((prev) =>
-      prev.map((reservation) =>
-        reservation.id === id ? { ...reservation, status } : reservation,
-      ),
-    );
-  };
-
-  const updateReservationData = (id: string, nextDate: string, nextPeopleCount: number) => {
+  const updateReservationData = async (id: string, nextDate: string, nextPeopleCount: number) => {
     setConfirmedReservations((prev) => {
       const target = prev.find((reservation) => reservation.id === id);
       if (!target) return prev;
@@ -413,6 +528,14 @@ function App() {
       }
 
       const updatedPrice = target.pricePerPerson * nextPeopleCount;
+
+      void supabase.from("reservations").update({
+        reservation_date: nextDate,
+        people_count: nextPeopleCount,
+        total_price: updatedPrice,
+      }).eq("id", id).then(({ error }) => {
+        if (error) alert("No se pudo modificar la reserva en Supabase.");
+      });
 
       return prev.map((reservation) =>
         reservation.id === id
@@ -433,7 +556,14 @@ function App() {
     });
   };
 
-  const handleAdminDeleteReservation = (id: string) => {
+  const handleAdminDeleteReservation = async (id: string) => {
+    const { error } = await supabase.from("reservations").delete().eq("id", id);
+
+    if (error) {
+      alert("No se pudo eliminar la reserva.");
+      return;
+    }
+
     setConfirmedReservations((prev) => prev.filter((reservation) => reservation.id !== id));
   };
 
@@ -502,13 +632,22 @@ function App() {
 
       {isAdminView ? (
         <div style={{ maxWidth: "1200px", margin: "2rem auto", padding: "0 1rem" }}>
-          {!sessionStorage.getItem(ADMIN_STORAGE_KEY) ? (
+          {!adminSession ? (
             <div className="checkout-card" style={{ background: "#fff", borderRadius: "16px", padding: "2rem", boxShadow: "0 10px 30px rgba(0,0,0,0.08)" }}>
               <h2>Acceso administrativo</h2>
-              <p style={{ color: "#555", marginBottom: "1rem" }}>Ingresa la contraseña para revisar y gestionar reservas.</p>
+              <p style={{ color: "#555", marginBottom: "1rem" }}>Ingresa tu cuenta administrativa para revisar y gestionar reservas.</p>
               <form onSubmit={handleAdminLogin}>
                 <input
+                  type="email"
+                  required
+                  value={adminEmail}
+                  onChange={(e) => setAdminEmail(e.target.value)}
+                  placeholder="admin@tudominio.com"
+                  style={{ width: "100%", padding: "0.8rem", borderRadius: "8px", border: "1px solid #ccc", marginBottom: "0.75rem" }}
+                />
+                <input
                   type="password"
+                  required
                   value={adminPassword}
                   onChange={(e) => setAdminPassword(e.target.value)}
                   placeholder="Contraseña del administrador"
@@ -583,9 +722,8 @@ function App() {
           reservations={reservations}
           allPackages={allAvailablePackages}
           onBack={() => setIsCheckoutOpen(false)}
-          onUpdateReservations={(updated) => {
+          onUpdateReservations={() => {
             setReservations([]);
-            addConfirmedReservations(updated);
             setIsCheckoutOpen(false);
             setIsCartOpen(false);
           }}
@@ -596,6 +734,7 @@ function App() {
           allPackages={allAvailablePackages}
           onSelectPackage={handleReserve}
           onBack={handleBack}
+          onViewReservations={() => setIsCartOpen(true)}
           onAddReservation={handleAddReservationItem}
           existingReservations={reservations}
         />
@@ -643,8 +782,13 @@ function App() {
             title="Nuestros paquetes"
             description="Elige la experiencia que más te gustaría vivir en Tierras Altas."
           >
+            {packagesLoading && <p>Cargando paquetes...</p>}
+            {packagesError && <p role="alert">{packagesError}</p>}
+            {!packagesLoading && !packagesError && regularPackages.length === 0 && (
+              <p>No hay paquetes disponibles en este momento.</p>
+            )}
             <div className="packages-grid">
-              {packages.map((pkg) => (
+              {regularPackages.map((pkg) => (
                 <article key={pkg.id} className={`package-card ${pkg.className}`} tabIndex={0}>
                   <div className="package-card__logo" aria-hidden="true">{pkg.icon}</div>
                   <div className="package-card__heading">
@@ -681,7 +825,7 @@ function App() {
             description="Descubre experiencias exclusivas en 4x4 por las mejores fincas cafeteras, degustando cosechas especiales y catas de café de altura."
           >
             <div className="packages-grid">
-              {safariPackages.map((pkg) => (
+              {premiumPackages.map((pkg) => (
                 <article key={pkg.id} className={`package-card ${pkg.className}`} tabIndex={0}>
                   <div className="package-card__logo" aria-hidden="true">{pkg.icon}</div>
                   <div className="package-card__heading">
