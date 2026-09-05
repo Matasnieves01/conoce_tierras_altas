@@ -26,7 +26,7 @@ const packages: PackageInfo[] = [
   {
     id: "finca-la-suiza",
     icon: "☕",
-    title: "Finca la Suiza",
+    title: "Tour de Aventura",
     price: "120$",
     numericPrice: 120,
     category: "Tour Cafetalero & Naturaleza",
@@ -61,7 +61,7 @@ const packages: PackageInfo[] = [
   {
     id: "aventura-lagunas-volcan",
     icon: "🚙",
-    title: "Lagunas de Volcán",
+    title: "Tour de Experiencia de Cafe",
     price: "90$",
     numericPrice: 90,
     category: "Aventura 4x4 & Senderos",
@@ -95,7 +95,7 @@ const packages: PackageInfo[] = [
   {
     id: "cascadas-finca-panama",
     icon: "✦",
-    title: "Cascadas y Finca Panamá",
+    title: "Tour Aventura y experiencia de Cafe",
     price: "110$",
     numericPrice: 110,
     category: "Senderismo & Bosque Nuboso",

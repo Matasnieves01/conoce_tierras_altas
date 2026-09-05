@@ -19,7 +19,7 @@ values
 (
   'finca-la-suiza',
   '☕',
-  'Finca la Suiza',
+  'Tour de Aventura',
   120,
   'Tour Cafetalero & Naturaleza',
   '5 - 6 Horas',
@@ -36,7 +36,7 @@ values
 (
   'aventura-lagunas-volcan',
   '🚙',
-  'Lagunas de Volcán',
+  'Tour de Experiencia de Cafe',
   90,
   'Aventura 4x4 & Senderos',
   '4 - 5 Horas',
@@ -53,7 +53,7 @@ values
 (
   'cascadas-finca-panama',
   '✦',
-  'Cascadas y Finca Panamá',
+  'Tour Aventura y experiencia de Cafe',
   110,
   'Senderismo & Bosque Nuboso',
   '6 Horas',
