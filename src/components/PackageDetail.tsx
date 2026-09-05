@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { supabase } from "../lib/supabase";
+import { translate, type Language } from "../i18n";
 
 export interface PackageInfo {
   id: string;
@@ -39,6 +41,7 @@ interface PackageDetailProps {
   allPackages: PackageInfo[];
   onSelectPackage: (pkg: PackageInfo) => void;
   onBack: () => void;
+  language?: Language;
   onViewReservations?: () => void;
   onAddReservation?: (res: ReservationItem) => boolean | void;
   existingReservations?: ReservationItem[];
@@ -56,10 +59,12 @@ export function PackageDetail({
   allPackages,
   onSelectPackage,
   onBack,
+  language = "es",
   onViewReservations,
   onAddReservation,
   existingReservations = [],
 }: PackageDetailProps) {
+  const text = translate(language);
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState<number>(0);
   const [isGalleryPaused, setIsGalleryPaused] = useState<boolean>(false);
   const [peopleCount, setPeopleCount] = useState<number>(2);
@@ -78,6 +83,7 @@ export function PackageDetail({
 
   const [isReserved, setIsReserved] = useState<boolean>(false);
   const [reservationMessage, setReservationMessage] = useState<string>("");
+  const [databaseBookedDates, setDatabaseBookedDates] = useState<string[]>([]);
 
   // Extract numeric price safely
   const unitPrice = pkg.numericPrice || parseInt(pkg.price.replace(/\D/g, ""), 10) || 100;
@@ -122,16 +128,55 @@ export function PackageDetail({
   const totalDays = getDaysInMonth(calendarYear, calendarMonth);
   const firstDay = getFirstDayOfMonth(calendarYear, calendarMonth);
 
-  // Deterministic check for reserved / unavailable dates
-  const isDateBooked = (day: number) => {
-    const bookedDays = [3, 8, 14, 21, 27];
-    return bookedDays.includes(day);
+  useEffect(() => {
+    const loadBookedDates = async () => {
+      const { data, error } = await supabase.rpc("get_booked_dates");
+
+      if (error) {
+        console.error("Error cargando fechas ocupadas:", error);
+        return;
+      }
+
+      setDatabaseBookedDates(
+        (data ?? []).map((row: { reservation_date: string }) => row.reservation_date),
+      );
+    };
+
+    loadBookedDates();
+  }, []);
+
+  const getDateString = (day: number) => {
+    const formattedMonth = String(calendarMonth + 1).padStart(2, "0");
+    const formattedDay = String(day).padStart(2, "0");
+    return `${calendarYear}-${formattedMonth}-${formattedDay}`;
   };
 
-  const isDatePast = (day: number) => {
-    const checkDate = new Date(calendarYear, calendarMonth, day, 23, 59, 59);
-    const now = new Date();
-    return checkDate < now;
+  const getTodayString = () => {
+    const currentDate = new Date();
+    const year = currentDate.getFullYear();
+    const month = String(currentDate.getMonth() + 1).padStart(2, "0");
+    const day = String(currentDate.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
+  const isDateBooked = (day: number) => {
+    return databaseBookedDates.includes(getDateString(day));
+  };
+
+  const isDatePast = (day: number) => getDateString(day) <= getTodayString();
+
+  const isDateReservedForOtherPackage = (dateString: string) => {
+    return existingReservations.some(
+      (reservation) => reservation.packageId !== pkg.id && reservation.date === dateString,
+    );
+  };
+
+  const isDateUnavailable = (dateString: string) => {
+    return (
+      dateString <= getTodayString() ||
+      databaseBookedDates.includes(dateString) ||
+      isDateReservedForOtherPackage(dateString)
+    );
   };
 
   const handlePrevMonth = () => {
@@ -153,17 +198,12 @@ export function PackageDetail({
   };
 
   const isReservedDateForOtherPackage = (day: number) => {
-    const formattedMonth = String(calendarMonth + 1).padStart(2, "0");
-    const formattedDay = String(day).padStart(2, "0");
-    const dateString = `${calendarYear}-${formattedMonth}-${formattedDay}`;
-
-    return existingReservations.some(
-      (reservation) => reservation.packageId !== pkg.id && reservation.date === dateString,
-    );
+    return isDateReservedForOtherPackage(getDateString(day));
   };
 
   const handleSelectDay = (day: number) => {
-    if (isDatePast(day) || isDateBooked(day) || isReservedDateForOtherPackage(day)) return;
+    const dateString = getDateString(day);
+    if (isDateUnavailable(dateString)) return;
     const formattedMonth = String(calendarMonth + 1).padStart(2, "0");
     const formattedDay = String(day).padStart(2, "0");
     setSelectedDate(`${calendarYear}-${formattedMonth}-${formattedDay}`);
@@ -183,9 +223,30 @@ export function PackageDetail({
   };
 
   const handleAddReservation = () => {
+    if (selectedDate <= getTodayString()) {
+      setIsReserved(false);
+      setReservationMessage("No puedes reservar hoy ni una fecha pasada. Elige una fecha futura.");
+      return;
+    }
+
+    if (databaseBookedDates.includes(selectedDate)) {
+      setIsReserved(false);
+      setReservationMessage(
+        `La fecha ${formatDisplayDate(selectedDate)} acaba de ser reservada. Elige otra fecha para continuar.`,
+      );
+      return;
+    }
+
+    if (isDateReservedForOtherPackage(selectedDate)) {
+      setIsReserved(false);
+      setReservationMessage(
+        `Ya tienes otro paquete reservado para el día ${formatDisplayDate(selectedDate)}. Elige otra fecha.`,
+      );
+      return;
+    }
+
     const hasConflict = existingReservations.some(
-      (reservation) =>
-        reservation.packageId !== pkg.id && reservation.date === selectedDate,
+      (reservation) => reservation.packageId !== pkg.id && reservation.date === selectedDate,
     );
 
     if (hasConflict) {
@@ -277,7 +338,7 @@ export function PackageDetail({
                   }
                 }}
               >
-                Reservar este tour ↓
+                {text.reserve} ↓
               </button>
             </div>
           </div>
@@ -432,7 +493,7 @@ export function PackageDetail({
 
           {/* Includes Section */}
           <section className="detail-section">
-            <h2 className="detail-section__title">¿Qué incluye este paquete?</h2>
+            <h2 className="detail-section__title">{text.included} este paquete</h2>
             <div className="includes-grid">
               {pkg.includes.map((item, idx) => (
                 <div key={idx} className="include-card">
@@ -542,11 +603,15 @@ export function PackageDetail({
                       const formattedDay = String(day).padStart(2, "0");
                       const dateString = `${calendarYear}-${formattedMonth}-${formattedDay}`;
                       const isSelected = selectedDate === dateString;
+                      const isUnavailable = isDateUnavailable(dateString);
 
                       let cellClass = "calendar-day";
                       if (isPast) {
                         cellClass += " calendar-day--past";
                       } else if (isBooked) {
+                        cellClass += " calendar-day--booked";
+                      } else {
+                        cellClass += " calendar-day--available";
                       }
 
                       if (isSelected) {
@@ -558,7 +623,7 @@ export function PackageDetail({
                           key={`day-${day}`}
                           type="button"
                           className={cellClass}
-                          disabled={isPast || isBooked}
+                          disabled={isUnavailable}
                           onClick={() => handleSelectDay(day)}
                           title={
                             isPast

@@ -101,6 +101,46 @@
   white-space: nowrap;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-left: auto;
+}
+
+.language-switcher select {
+  min-width: 72px;
+  padding: 0.6rem 0.55rem;
+  border: 1px solid rgba(22, 101, 52, 0.28);
+  border-radius: 999px;
+  color: var(--verde-forestal);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 4px 12px rgba(22, 101, 52, 0.08);
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.language-switcher select:hover,
+.language-switcher select:focus-visible {
+  border-color: var(--verde-forestal);
+  box-shadow: 0 6px 16px rgba(22, 101, 52, 0.16);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 html {
   scroll-behavior: smooth;
 }
@@ -127,7 +167,7 @@ button {
 
 .hero {
   position: relative;
-  min-height: 70vh;
+  min-height: 90vh;
   display: grid;
   grid-template-columns: 1.2fr 0.8fr;
   align-items: center;
@@ -145,7 +185,7 @@ button {
   content: "";
   position: absolute;
   inset: 0;
-  background: rgba(22, 101, 52, 0.38);
+  background: rgba(22, 101, 52, 0.18);
 }
 
 .hero__content,
@@ -656,7 +696,7 @@ button {
 @media (max-width: 768px) {
   .hero {
     grid-template-columns: 1fr;
-    min-height: auto;
+    min-height: 78vh;
     padding-top: 20px;
   }
 
@@ -1434,6 +1474,36 @@ button {
   box-shadow: 0 4px 10px rgba(249, 115, 22, 0.4);
   transform: scale(1.08);
   text-decoration: none !important;
+}
+
+.admin-calendar-day {
+  min-height: 92px;
+  padding: 0.45rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f8fafc;
+  overflow: hidden;
+}
+
+.admin-calendar-day--has-trips {
+  border-color: rgba(22, 101, 52, 0.4);
+  background: #ecfdf3;
+}
+
+.admin-calendar-day strong {
+  display: block;
+  color: #344054;
+  margin-bottom: 0.3rem;
+}
+
+.admin-calendar-day span {
+  display: block;
+  overflow: hidden;
+  color: #166534;
+  font-size: 0.68rem;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .calendar-legend {
