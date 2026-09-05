@@ -9,7 +9,7 @@ create table if not exists public.reservations (
   people_count integer not null check (people_count >= 2),
   reservation_date date not null,
   total_price numeric(10, 2) not null check (total_price >= 0),
-  status text not null default 'pendiente' check (status in ('pendiente', 'aprobado', 'cancelado')),
+  status text not null default 'pendiente' check (status in ('pendiente', 'aprobado', 'rechazado', 'cancelado', 'completado')),
   payment_method text,
   created_at timestamptz not null default now()
 );

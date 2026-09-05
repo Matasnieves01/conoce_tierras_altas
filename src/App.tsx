@@ -10,15 +10,18 @@ import CheckoutPage from "./components/CheckoutPage";
 import { canAddReservation } from "./utils/reservationValidation";
 import { supabase } from "./lib/supabase";
 import type { Session } from "@supabase/supabase-js";
+import { translate, type Language } from "./i18n";
 
-type AdminReservationStatus = "pendiente" | "aprobado" | "cancelado";
+type AdminReservationStatus = "pendiente" | "aprobado" | "rechazado" | "cancelado" | "completado";
 
 interface AdminReservation extends ReservationItem {
   id: string;
   status: AdminReservationStatus;
   createdAt: string;
+  receiptPath?: string;
 }
 
+/* Legacy package definitions kept temporarily for image fallbacks only.
 const packages: PackageInfo[] = [
   {
     id: "finca-la-suiza",
@@ -231,6 +234,8 @@ const safariPackages: PackageInfo[] = [
   },
 ];
 
+*/
+
 interface PackageRow {
   id: string;
   icon: string | null;
@@ -249,10 +254,6 @@ interface PackageRow {
   class_name: string | null;
 }
 
-const localPackageById = new Map(
-  [...packages, ...safariPackages].map((pkg) => [pkg.id, pkg]),
-);
-
 const getPackageAsset = (asset: string | null, fallback: string): string => {
   if (!asset) return fallback;
   if (asset.startsWith("http") || asset.startsWith("/")) return asset;
@@ -267,16 +268,15 @@ const getPackageAsset = (asset: string | null, fallback: string): string => {
 };
 
 const mapPackageRow = (row: PackageRow): PackageInfo => {
-  const localPackage = localPackageById.get(row.id);
-  const image = getPackageAsset(row.image, localPackage?.image || paquete1);
+  const image = getPackageAsset(row.image, paquete1);
 
   return {
     id: row.id,
-    icon: row.icon || localPackage?.icon || "✦",
+    icon: row.icon || "✦",
     title: row.title,
     price: `${row.price}$`,
     numericPrice: row.price,
-    category: row.category || localPackage?.category,
+    category: row.category || undefined,
     description: row.description || "Descubre una experiencia inolvidable en Tierras Altas.",
     longDescription: row.long_description || undefined,
     duration: row.duration || undefined,
@@ -286,11 +286,15 @@ const mapPackageRow = (row: PackageRow): PackageInfo => {
     highlights: row.highlights || [],
     image,
     gallery: (row.gallery || []).map((asset) => getPackageAsset(asset, image)),
-    className: row.class_name || localPackage?.className || "package-card--one",
+    className: row.class_name || "package-card--one",
   };
 };
 
 function App() {
+  const [language, setLanguage] = useState<Language>(() =>
+    (localStorage.getItem("site-language") as Language) || "es",
+  );
+  const text = translate(language);
   const [isHeaderHidden, setIsHeaderHidden] = useState(false);
   const [selectedPackage, setSelectedPackage] = useState<PackageInfo | null>(null);
   const [reservations, setReservations] = useState<ReservationItem[]>([]);
@@ -305,6 +309,12 @@ function App() {
   const [adminEmail, setAdminEmail] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
   const [adminError, setAdminError] = useState("");
+  const [adminSection, setAdminSection] = useState<"pending" | "approved" | "rejected" | "cancelled" | "completed" | "calendar">("pending");
+  const [adminCalendarDate, setAdminCalendarDate] = useState(() => new Date());
+
+  useEffect(() => {
+    localStorage.setItem("site-language", language);
+  }, [language]);
 
   useEffect(() => {
     const loadPackages = async () => {
@@ -393,6 +403,7 @@ function App() {
         }),
         status: reservation.status as AdminReservationStatus,
         createdAt: reservation.created_at,
+        receiptPath: reservation.receipt_path,
       })));
     };
 
@@ -567,9 +578,78 @@ function App() {
     setConfirmedReservations((prev) => prev.filter((reservation) => reservation.id !== id));
   };
 
+  const handleViewReceipt = async (receiptPath?: string) => {
+    if (!receiptPath) {
+      alert("Esta reserva no tiene un comprobante adjunto.");
+      return;
+    }
+
+    const { data, error } = await supabase.storage
+      .from("payment-receipts")
+      .createSignedUrl(receiptPath, 300);
+
+    if (error || !data?.signedUrl) {
+      alert("No se pudo abrir el comprobante.");
+      return;
+    }
+
+    window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+  };
+
+  const pendingReservations = confirmedReservations.filter(
+    (reservation) => reservation.status === "pendiente",
+  );
+  const approvedReservations = confirmedReservations.filter(
+    (reservation) => reservation.status === "aprobado",
+  );
+  const rejectedReservations = confirmedReservations.filter(
+    (reservation) => reservation.status === "rechazado",
+  );
+  const cancelledReservations = confirmedReservations.filter(
+    (reservation) => reservation.status === "cancelado",
+  );
+  const completedReservations = confirmedReservations.filter(
+    (reservation) => reservation.status === "completado",
+  );
+
+  const adminReservationsForSection = {
+    pending: pendingReservations,
+    approved: approvedReservations,
+    rejected: rejectedReservations,
+    cancelled: cancelledReservations,
+    completed: completedReservations,
+  }[adminSection === "calendar" ? "approved" : adminSection];
+
+  const getAdminCalendarDays = () => {
+    const year = adminCalendarDate.getFullYear();
+    const month = adminCalendarDate.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const firstDay = new Date(year, month, 1).getDay();
+    return { year, month, daysInMonth, firstDay };
+  };
+
+  const formatAdminMonth = () => adminCalendarDate.toLocaleDateString("es-ES", {
+    month: "long",
+    year: "numeric",
+  });
+
+  const moveAdminMonth = (offset: number) => {
+    setAdminCalendarDate((current) => new Date(current.getFullYear(), current.getMonth() + offset, 1));
+  };
+
+  const getReservationsForAdminDay = (day: number) => {
+    const { year, month } = getAdminCalendarDays();
+    const date = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    return confirmedReservations.filter(
+      (reservation) =>
+        reservation.date === date &&
+        (reservation.status === "aprobado" || reservation.status === "completado"),
+    );
+  };
+
   return (
     <main className="page">
-      <header className={`site-header${isHeaderHidden ? " site-header--hidden" : ""}`}>
+      {!isAdminView && <header className={`site-header${isHeaderHidden ? " site-header--hidden" : ""}`}>
         <div
           className="site-header__logo"
           onClick={handleBack}
@@ -591,44 +671,52 @@ function App() {
           <ul>
             <li>
               <a href="#inicio" onClick={(e) => handleNavClick(e, "inicio")}>
-                Inicio
-              </a>
-            </li>
-            <li>
-              <a href="#destinos" onClick={(e) => handleNavClick(e, "experiencia")}>
-                Qué encontrarás
+                {text.home}
               </a>
             </li>
             <li>
               <a href="#experiencia" onClick={(e) => handleNavClick(e, "experiencia")}>
-                Nuestros paquetes
+                {text.packages}
               </a>
             </li>
             <li>
               <a href="#safari-coffee" onClick={(e) => handleNavClick(e, "safari-coffee")}>
-                Safari Premium Coffee
+                {text.premium}
               </a>
             </li>
             <li>
               <a href="#contacto" onClick={(e) => handleNavClick(e, "contacto")}>
-                Sobre nosotros
+                {text.about}
               </a>
             </li>
           </ul>
         </nav>
 
-        <button
-          type="button"
-          className="btn btn--primary header-btn header-reserva-btn"
-          onClick={() => setIsCartOpen(true)}
-          aria-label="Ver reservas seleccionadas"
-        >
-          <span>🛒 Mi Reserva</span>
-          {reservations.length > 0 && (
-            <span className="header-reserva-badge">{reservations.length}</span>
-          )}
-        </button>
-      </header>
+        <div className="header-actions">
+          <label className="language-switcher">
+            <span className="sr-only">{text.language}</span>
+            <select
+              value={language}
+              onChange={(event) => setLanguage(event.target.value as Language)}
+              aria-label={text.language}
+            >
+              <option value="es">🇪🇸 ES</option>
+              <option value="en">🇬🇧 EN</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            className="btn btn--primary header-btn header-reserva-btn"
+            onClick={() => setIsCartOpen(true)}
+            aria-label="Ver reservas seleccionadas"
+          >
+            <span>🛒 {text.cart}</span>
+            {reservations.length > 0 && (
+              <span className="header-reserva-badge">{reservations.length}</span>
+            )}
+          </button>
+        </div>
+      </header>}
 
       {isAdminView ? (
         <div style={{ maxWidth: "1200px", margin: "2rem auto", padding: "0 1rem" }}>
@@ -662,16 +750,63 @@ function App() {
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "1rem", marginBottom: "1.5rem", flexWrap: "wrap" }}>
                 <div>
                   <span className="about-section__eyebrow">Panel de administración</span>
-                  <h2 style={{ margin: "0.4rem 0 0" }}>Reservas y pagos</h2>
+                  <h2 style={{ margin: "0.4rem 0 0" }}>Operación de reservas</h2>
                 </div>
                 <button type="button" className="btn btn--secondary" onClick={handleAdminLogout}>Cerrar sesión</button>
               </div>
 
-              {confirmedReservations.length === 0 ? (
-                <p style={{ color: "#555" }}>No hay reservas confirmadas todavía.</p>
+              <nav aria-label="Secciones administrativas" style={{ display: "grid", gridTemplateColumns: "repeat(6, minmax(0, 1fr))", gap: "0.5rem", marginBottom: "1.5rem", borderBottom: "1px solid #e5e7eb", paddingBottom: "1rem" }}>
+                <button type="button" className={`btn ${adminSection === "pending" ? "btn--primary" : "btn--secondary"}`} onClick={() => setAdminSection("pending")}>
+                  Por aprobar <strong>({pendingReservations.length})</strong>
+                </button>
+                <button type="button" className={`btn ${adminSection === "approved" ? "btn--primary" : "btn--secondary"}`} onClick={() => setAdminSection("approved")}>
+                  Aprobadas <strong>({approvedReservations.length})</strong>
+                </button>
+                <button type="button" className={`btn ${adminSection === "rejected" ? "btn--primary" : "btn--secondary"}`} onClick={() => setAdminSection("rejected")}>
+                  Rechazadas <strong>({rejectedReservations.length})</strong>
+                </button>
+                <button type="button" className={`btn ${adminSection === "cancelled" ? "btn--primary" : "btn--secondary"}`} onClick={() => setAdminSection("cancelled")}>
+                  Canceladas <strong>({cancelledReservations.length})</strong>
+                </button>
+                <button type="button" className={`btn ${adminSection === "completed" ? "btn--primary" : "btn--secondary"}`} onClick={() => setAdminSection("completed")}>
+                  Completadas <strong>({completedReservations.length})</strong>
+                </button>
+                <button type="button" className={`btn ${adminSection === "calendar" ? "btn--primary" : "btn--secondary"}`} onClick={() => setAdminSection("calendar")}>
+                  Calendario
+                </button>
+              </nav>
+
+              {adminSection === "calendar" ? (
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem" }}>
+                    <button type="button" className="calendar-nav-btn" onClick={() => moveAdminMonth(-1)} aria-label="Mes anterior">‹</button>
+                    <h3 style={{ margin: 0, textTransform: "capitalize" }}>{formatAdminMonth()}</h3>
+                    <button type="button" className="calendar-nav-btn" onClick={() => moveAdminMonth(1)} aria-label="Mes siguiente">›</button>
+                  </div>
+                  <div className="calendar-weekdays">
+                    {["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"].map((day) => <span key={day}>{day}</span>)}
+                  </div>
+                  <div className="calendar-grid">
+                    {Array.from({ length: getAdminCalendarDays().firstDay }).map((_, index) => <span key={`admin-empty-${index}`} className="calendar-day calendar-day--empty" />)}
+                    {Array.from({ length: getAdminCalendarDays().daysInMonth }).map((_, index) => {
+                      const day = index + 1;
+                      const dayReservations = getReservationsForAdminDay(day);
+                      return (
+                        <div key={`admin-day-${day}`} className={`admin-calendar-day${dayReservations.length ? " admin-calendar-day--has-trips" : ""}`}>
+                          <strong>{day}</strong>
+                          {dayReservations.map((reservation) => <span key={reservation.id} title={reservation.packageTitle}>{reservation.packageTitle}</span>)}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p style={{ color: "#667085", marginTop: "1rem" }}>Los días resaltados tienen viajes aprobados o completados.</p>
+                </div>
               ) : (
+                adminReservationsForSection.length === 0 ? (
+                  <p style={{ color: "#555" }}>No hay reservas en esta sección.</p>
+                ) : (
                 <div style={{ display: "grid", gap: "1rem" }}>
-                  {confirmedReservations.map((reservation) => (
+                  {adminReservationsForSection.map((reservation) => (
                     <div key={reservation.id} style={{ border: "1px solid #e5e7eb", borderRadius: "12px", padding: "1rem", background: "#f9fafb" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap" }}>
                         <div>
@@ -680,12 +815,19 @@ function App() {
                           <p style={{ margin: 0, color: "#475467" }}>💰 ${reservation.totalPrice}</p>
                         </div>
                         <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
-                          <span style={{ background: reservation.status === "aprobado" ? "#dcfce7" : reservation.status === "cancelado" ? "#fee2e2" : "#e0f2fe", padding: "0.4rem 0.7rem", borderRadius: "999px", fontSize: "0.75rem", fontWeight: 700, color: "#0f172a" }}>
-                            {reservation.status}
+                          <span style={{ background: reservation.status === "aprobado" || reservation.status === "completado" ? "#dcfce7" : reservation.status === "cancelado" || reservation.status === "rechazado" ? "#fee2e2" : "#e0f2fe", padding: "0.4rem 0.7rem", borderRadius: "999px", fontSize: "0.75rem", fontWeight: 700, color: "#0f172a" }}>
+                            {reservation.status === "pendiente" ? "Por aprobar" : reservation.status === "aprobado" ? "Aprobada" : reservation.status === "rechazado" ? "Rechazada" : reservation.status === "cancelado" ? "Cancelada" : "Completada"}
                           </span>
-                          <button type="button" className="btn btn--secondary" onClick={() => updateReservationStatus(reservation.id, "aprobado")}>Aprobar</button>
-                          <button type="button" className="btn btn--secondary" onClick={() => updateReservationStatus(reservation.id, "cancelado")}>Cancelar</button>
-                          <button type="button" className="btn btn--secondary" onClick={() => handleAdminDeleteReservation(reservation.id)}>Eliminar</button>
+                          {reservation.status === "pendiente" && <>
+                            <button type="button" className="btn btn--secondary" onClick={() => updateReservationStatus(reservation.id, "aprobado")}>Aprobar</button>
+                            <button type="button" className="btn btn--secondary" onClick={() => updateReservationStatus(reservation.id, "rechazado")}>Rechazar</button>
+                          </>}
+                          {reservation.status === "aprobado" && <>
+                            <button type="button" className="btn btn--secondary" onClick={() => updateReservationStatus(reservation.id, "cancelado")}>Cancelar</button>
+                            <button type="button" className="btn btn--secondary" onClick={() => updateReservationStatus(reservation.id, "completado")}>Completar</button>
+                          </>}
+                          <button type="button" className="btn btn--secondary" onClick={() => handleViewReceipt(reservation.receiptPath)}>Ver comprobante</button>
+                          {(reservation.status === "cancelado" || reservation.status === "rechazado") && <button type="button" className="btn btn--secondary" onClick={() => handleAdminDeleteReservation(reservation.id)}>Eliminar</button>}
                         </div>
                       </div>
 
@@ -696,6 +838,7 @@ function App() {
                             type="date"
                             value={reservation.date}
                             onChange={(e) => updateReservationData(reservation.id, e.target.value, reservation.peopleCount)}
+                            disabled={reservation.status !== "aprobado"}
                             style={{ width: "100%", padding: "0.7rem", borderRadius: "8px", border: "1px solid #ccc" }}
                           />
                         </div>
@@ -706,6 +849,7 @@ function App() {
                             min={2}
                             value={reservation.peopleCount}
                             onChange={(e) => updateReservationData(reservation.id, reservation.date, Number(e.target.value) || 2)}
+                            disabled={reservation.status !== "aprobado"}
                             style={{ width: "100%", padding: "0.7rem", borderRadius: "8px", border: "1px solid #ccc" }}
                           />
                         </div>
@@ -713,6 +857,7 @@ function App() {
                     </div>
                   ))}
                 </div>
+                )
               )}
             </div>
           )}
@@ -721,6 +866,7 @@ function App() {
         <CheckoutPage
           reservations={reservations}
           allPackages={allAvailablePackages}
+          language={language}
           onBack={() => setIsCheckoutOpen(false)}
           onUpdateReservations={() => {
             setReservations([]);
@@ -732,6 +878,7 @@ function App() {
         <PackageDetail
           pkg={selectedPackage}
           allPackages={allAvailablePackages}
+          language={language}
           onSelectPackage={handleReserve}
           onBack={handleBack}
           onViewReservations={() => setIsCartOpen(true)}
@@ -742,18 +889,15 @@ function App() {
         <>
           <header id="inicio" className="hero">
             <div className="hero__content">
-              <p className="hero__eyebrow">Safari de experiencia de Cafe</p>
+              <p className="hero__eyebrow">{text.heroEyebrow}</p>
 
               <Heading
-                title="Conoce Tierras Altas"
-                subtitle="Descubre los paisajes más emblemáticos de Tierras Altas."
+                title={text.heroTitle}
+                subtitle={text.heroSubtitle}
               />
 
               <p className="hero__text">
-                Recorre fincas cafetaleras y atractivos naturales en un safari 4x4
-                organizado, con paradas estratégicas para disfrutar del paisaje,
-                degustar café preparado en el lugar y conocer la historia y el
-                proceso de producción del café.
+                {text.heroText}
               </p>
 
               <div className="hero__actions">
@@ -762,14 +906,14 @@ function App() {
                   className="btn btn--primary"
                   onClick={() => document.getElementById("experiencia")?.scrollIntoView({ behavior: "smooth" })}
                 >
-                  Conoce los paquetes
+                  {text.seePackages}
                 </button>
                 <button
                   type="button"
                   className="btn btn--secondary"
                   onClick={() => document.getElementById("equipo")?.scrollIntoView({ behavior: "smooth" })}
                 >
-                  Conoce el Equipo
+                  {text.meetTeam}
                 </button>
               </div>
             </div>
@@ -779,8 +923,8 @@ function App() {
 
           <Section
             id="experiencia"
-            title="Nuestros paquetes"
-            description="Elige la experiencia que más te gustaría vivir en Tierras Altas."
+            title={text.packages}
+            description={text.chooseExperience}
           >
             {packagesLoading && <p>Cargando paquetes...</p>}
             {packagesError && <p role="alert">{packagesError}</p>}
@@ -800,7 +944,7 @@ function App() {
                   </div>
                   <p>{pkg.description}</p>
                   <div className="package-card__details">
-                    <h4>Incluye</h4>
+                        <h4>{text.included}</h4>
                     <ul>
                       {pkg.includes.map((item) => (
                         <li key={item}>{item}</li>
@@ -811,7 +955,7 @@ function App() {
                       className="package-card__reserve"
                       onClick={() => handleReserve(pkg)}
                     >
-                      Reservar ahora
+                      {text.reserve}
                     </button>
                   </div>
                 </article>
@@ -821,8 +965,8 @@ function App() {
 
           <Section
             id="safari-coffee"
-            title="Safari Premium Coffee"
-            description="Descubre experiencias exclusivas en 4x4 por las mejores fincas cafeteras, degustando cosechas especiales y catas de café de altura."
+            title={text.premium}
+            description={text.premiumDescription}
           >
             <div className="packages-grid">
               {premiumPackages.map((pkg) => (
@@ -837,7 +981,7 @@ function App() {
                   </div>
                   <p>{pkg.description}</p>
                   <div className="package-card__details">
-                    <h4>Incluye</h4>
+                        <h4>{text.included}</h4>
                     <ul>
                       {pkg.includes.map((item) => (
                         <li key={item}>{item}</li>
@@ -848,7 +992,7 @@ function App() {
                       className="package-card__reserve"
                       onClick={() => handleReserve(pkg)}
                     >
-                      Reservar ahora
+                      {text.reserve}
                     </button>
                   </div>
                 </article>
@@ -858,7 +1002,7 @@ function App() {
 
           <section id="contacto" className="about-section">
             <div className="about-section__content">
-              <p className="about-section__eyebrow">Sobre nosotros</p>
+              <p className="about-section__eyebrow">{text.about}</p>
               <h2>Una historia nacida de la tierra y del cariño por su gente.</h2>
               <p>
                 Soy oriundo de Volcán, del distrito de Tierras Altas y durante 45 años
@@ -874,7 +1018,7 @@ function App() {
 
           <section id="equipo" className="team-section">
             <div className="team-section__intro">
-              <p className="about-section__eyebrow">Nuestro equipo</p>
+              <p className="about-section__eyebrow">{text.team}</p>
               <h2>Las personas detrás de cada experiencia.</h2>
             </div>
 
@@ -909,8 +1053,8 @@ function App() {
               <div className="cart-modal__title-box">
                 <span className="cart-modal__icon">🛒</span>
                 <div>
-                  <h3>Tu Reserva de Experiencias</h3>
-                  <p>{reservations.length} {reservations.length === 1 ? "paquete seleccionado" : "paquetes seleccionados"}</p>
+                  <h3>{text.reservations}</h3>
+                  <p>{reservations.length} {reservations.length === 1 ? text.selectedPackage : text.selectedPackages}</p>
                 </div>
               </div>
               <button
@@ -986,14 +1130,14 @@ function App() {
                     className="btn btn--primary btn--full cart-confirm-btn"
                     onClick={handleGoToCheckout}
                   >
-                    Ir al checkout →
+                    {text.checkout} →
                   </button>
                   <button
                     type="button"
                     className="btn btn--secondary btn--full"
                     onClick={() => setIsCartOpen(false)}
                   >
-                    Continuar explorando
+                    {text.continueExploring}
                   </button>
                 </div>
               </div>

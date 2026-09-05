@@ -1,10 +1,12 @@
 import React, { useState } from "react";
 import type { ReservationItem, PackageInfo } from "./PackageDetail";
 import { supabase } from "../lib/supabase";
+import { translate, type Language } from "../i18n";
 
 interface CheckoutPageProps {
   reservations: ReservationItem[];
   allPackages: PackageInfo[];
+  language?: Language;
   onBack: () => void;
   onUpdateReservations: (updated: ReservationItem[]) => void | Promise<void>;
 }
@@ -14,15 +16,31 @@ interface AttendeeInfo {
   documentId: string;
 }
 
+const COUNTRY_CODES = [
+  { code: "+507", flag: "🇵🇦", country: "Panamá" },
+  { code: "+1", flag: "🇺🇸", country: "Estados Unidos / Canadá" },
+  { code: "+52", flag: "🇲🇽", country: "México" },
+  { code: "+34", flag: "🇪🇸", country: "España" },
+  { code: "+57", flag: "🇨🇴", country: "Colombia" },
+  { code: "+506", flag: "🇨🇷", country: "Costa Rica" },
+  { code: "+51", flag: "🇵🇪", country: "Perú" },
+  { code: "+56", flag: "🇨🇱", country: "Chile" },
+  { code: "+54", flag: "🇦🇷", country: "Argentina" },
+  { code: "+55", flag: "🇧🇷", country: "Brasil" },
+];
+
 export function CheckoutPage({
   reservations,
   onBack,
+  language = "es",
   onUpdateReservations,
 }: CheckoutPageProps) {
+  const text = translate(language);
   const [step, setStep] = useState<"attendees" | "payment" | "success">("attendees");
   
   // Contact and attendee data
   const [clientEmail, setClientEmail] = useState("");
+  const [countryCode, setCountryCode] = useState("+507");
   const [clientPhone, setClientPhone] = useState("");
   const [attendeesMap, setAttendeesMap] = useState<Record<string, AttendeeInfo[]>>(() => {
     const initial: Record<string, AttendeeInfo[]> = {};
@@ -55,8 +73,50 @@ export function CheckoutPage({
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
+      if (!file.type.startsWith("image/")) {
+        alert("El comprobante debe ser una imagen.");
+        e.target.value = "";
+        return;
+      }
+
       setReceiptFile(file);
       setReceiptPreview(URL.createObjectURL(file));
+    }
+  };
+
+  const compressReceipt = async (file: File): Promise<Blob> => {
+    const image = new Image();
+    const objectUrl = URL.createObjectURL(file);
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        image.onload = () => resolve();
+        image.onerror = () => reject(new Error("No se pudo leer la imagen."));
+        image.src = objectUrl;
+      });
+
+      const maxDimension = 1400;
+      const scale = Math.min(1, maxDimension / Math.max(image.width, image.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(image.width * scale));
+      canvas.height = Math.max(1, Math.round(image.height * scale));
+      canvas.getContext("2d")?.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+      let compressed: Blob | null = null;
+      for (const quality of [0.78, 0.68, 0.58, 0.48]) {
+        compressed = await new Promise<Blob | null>((resolve) =>
+          canvas.toBlob(resolve, "image/jpeg", quality),
+        );
+        if (compressed && compressed.size <= 900 * 1024) break;
+      }
+
+      if (!compressed) throw new Error("No se pudo comprimir la imagen.");
+      if (compressed.size > 1024 * 1024) {
+        throw new Error("La imagen sigue superando 1 MB después de comprimirla.");
+      }
+      return compressed;
+    } finally {
+      URL.revokeObjectURL(objectUrl);
     }
   };
 
@@ -76,6 +136,10 @@ export function CheckoutPage({
       alert("Por favor ingresa un correo electrónico válido para enviar tu comprobante.");
       return;
     }
+    if (clientPhone.replace(/\D/g, "").length < 6) {
+      alert("Por favor ingresa un número de teléfono válido.");
+      return;
+    }
     setStep("payment");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -89,18 +153,45 @@ export function CheckoutPage({
 
     setIsSubmitting(true);
 
+    let compressedReceipt: Blob;
+    try {
+      compressedReceipt = await compressReceipt(receiptFile);
+    } catch (error) {
+      console.error("Error comprimiendo comprobante:", error);
+      setIsSubmitting(false);
+      alert("No pudimos procesar la imagen del comprobante.");
+      return;
+    }
+
+    const receiptPath = `${crypto.randomUUID()}.jpg`;
+    const { error: uploadError } = await supabase.storage
+      .from("payment-receipts")
+      .upload(receiptPath, compressedReceipt, {
+        contentType: "image/jpeg",
+        upsert: false,
+      });
+
+    if (uploadError) {
+      console.error("Error subiendo comprobante:", uploadError);
+      setIsSubmitting(false);
+      alert(`No pudimos subir el comprobante: ${uploadError.message}`);
+      return;
+    }
+
     const reservationRows = reservations.map((item) => ({
+      id: crypto.randomUUID(),
       package_id: item.packageId,
       package_title: item.packageTitle,
       client_name: attendeesMap[item.packageId]?.[0]?.fullName.trim() || "Cliente",
       client_email: clientEmail.trim(),
-      client_phone: clientPhone.trim(),
+      client_phone: `${countryCode}${clientPhone.replace(/\D/g, "")}`,
       people_count: item.peopleCount,
       reservation_date: item.date,
       total_price: item.totalPrice,
       status: "pendiente",
       payment_method: selectedMethod,
       document_id: attendeesMap[item.packageId]?.[0]?.documentId.trim() || "",
+      receipt_path: receiptPath,
     }));
 
     const { error } = await supabase.from("reservations").insert(reservationRows);
@@ -108,7 +199,10 @@ export function CheckoutPage({
     if (error) {
       console.error("Error guardando la reserva en Supabase:", error);
       setIsSubmitting(false);
-      alert("No pudimos registrar la reserva. Verifica la conexión e inténtalo nuevamente.");
+      const message = error.code === "23505"
+        ? "La fecha seleccionada acaba de ser reservada. Elige otra fecha."
+        : `No pudimos registrar la reserva: ${error.message}`;
+      alert(message);
       return;
     }
 
@@ -124,10 +218,10 @@ export function CheckoutPage({
     return (
       <div className="package-detail-page">
         <div className="package-detail__container" style={{ padding: "4rem 1rem", textAlign: "center" }}>
-          <h2>No tienes reservas activas en este momento.</h2>
+          <h2>{language === "es" ? "No tienes reservas activas en este momento." : "You have no active bookings right now."}</h2>
           <p style={{ margin: "1rem 0 2rem", color: "#666" }}>Explora nuestros paquetes y agrega experiencias a tu carrito.</p>
           <button type="button" className="btn btn--primary" onClick={onBack}>
-            Ver paquetes disponibles
+            {text.seePackages}
           </button>
         </div>
       </div>
@@ -137,8 +231,8 @@ export function CheckoutPage({
   return (
     <div className="package-detail-page">
       <header className="package-detail__hero-topbar" style={{ padding: "1.5rem 2rem", background: "#112217" }}>
-        <button type="button" className="btn btn--secondary package-detail__back-btn" onClick={onBack}>
-          ← Volver
+          <button type="button" className="btn btn--secondary package-detail__back-btn" onClick={onBack}>
+          ← {language === "es" ? "Volver" : "Back"}
         </button>
       </header>
 
@@ -166,14 +260,29 @@ export function CheckoutPage({
                 </div>
                 <div>
                   <label style={{ display: "block", fontWeight: 600, marginBottom: "0.5rem" }}>Teléfono / WhatsApp *</label>
-                  <input
-                    type="tel"
-                    required
-                    placeholder="+507 6000-0000"
-                    value={clientPhone}
-                    onChange={(e) => setClientPhone(e.target.value)}
-                    style={{ width: "100%", padding: "0.75rem", borderRadius: "8px", border: "1px solid #ccc" }}
-                  />
+                  <div style={{ display: "grid", gridTemplateColumns: "minmax(150px, 0.8fr) 1.2fr", gap: "0.5rem" }}>
+                    <select
+                      value={countryCode}
+                      onChange={(e) => setCountryCode(e.target.value)}
+                      aria-label="Código de país"
+                      style={{ width: "100%", padding: "0.75rem", borderRadius: "8px", border: "1px solid #ccc", background: "#fff" }}
+                    >
+                      {COUNTRY_CODES.map((country) => (
+                        <option key={country.code} value={country.code}>
+                          {country.flag} {country.code}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      type="tel"
+                      required
+                      inputMode="tel"
+                      placeholder="6000-0000"
+                      value={clientPhone}
+                      onChange={(e) => setClientPhone(e.target.value)}
+                      style={{ width: "100%", padding: "0.75rem", borderRadius: "8px", border: "1px solid #ccc" }}
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -282,7 +391,7 @@ export function CheckoutPage({
                 <label style={{ display: "block", fontWeight: 600, marginBottom: "0.5rem" }}>Adjuntar comprobante de pago (Captura o PDF) *</label>
                 <input
                   type="file"
-                  accept="image/*,application/pdf"
+                  accept="image/jpeg,image/png,image/webp,image/heic"
                   required
                   onChange={handleFileChange}
                   style={{ width: "100%", padding: "0.75rem", borderRadius: "8px", border: "1px solid #ccc", background: "#fafafa" }}
