@@ -2,15 +2,16 @@ import { useEffect, useState } from "react";
 import { Section } from "./components/Section";
 import Heading from "./components/Heading";
 import PackageDetail, { type PackageInfo, type ReservationItem } from "./components/PackageDetail";
-import logo from "./assets/logo.png";
+import logo from "./assets/logo_BG.png";
 import paquete1 from "./assets/Paquete1.jpg";
 import paquete2 from "./assets/Paquete2.jpg";
 import paquete3 from "./assets/Paquete3.jpg";
 import CheckoutPage from "./components/CheckoutPage";
-import { canAddReservation } from "./utils/reservationValidation";
+import { canAddReservation, getPackageAccessibility } from "./utils/reservationValidation";
 import { supabase } from "./lib/supabase";
 import type { Session } from "@supabase/supabase-js";
 import { translate, type Language } from "./i18n";
+import Icon from "./components/Icon";
 
 type AdminReservationStatus = "pendiente" | "aprobado" | "rechazado" | "cancelado" | "completado";
 
@@ -21,17 +22,18 @@ interface AdminReservation extends ReservationItem {
   receiptPath?: string;
 }
 
-/* Legacy package definitions kept temporarily for image fallbacks only.
-const packages: PackageInfo[] = [
+/* Fallback package definitions when database is loading or offline */
+const fallbackRegularPackages: PackageInfo[] = [
   {
     id: "finca-la-suiza",
-    icon: "☕",
+    icon: "local_cafe",
     title: "Tour de Aventura",
     price: "120$",
     numericPrice: 120,
     category: "Tour Cafetalero & Naturaleza",
-    duration: "5 - 6 Horas",
-    difficulty: "Fácil - Moderado",
+    duration: "4 Horas",
+    difficulty: "Cualquier persona",
+    accessibility: "Cualquier persona, apto para todo público.",
     location: "Paso Ancho, Tierras Altas",
     description: "Una experiencia completa para conocer el proceso del café, la naturaleza y la cultura local.",
     longDescription: "Sumérgete en la tradición agrícola de Tierras Altas con un recorrido detallado por la histórica Finca la Suiza. Conocerás de la mano de expertos las etapas desde el cultivo, cosecha, despulpado hasta el secado tradicional y tostado.",
@@ -60,13 +62,14 @@ const packages: PackageInfo[] = [
   },
   {
     id: "aventura-lagunas-volcan",
-    icon: "🚙",
+    icon: "directions_car",
     title: "Tour de Experiencia de Cafe",
     price: "90$",
     numericPrice: 90,
     category: "Aventura 4x4 & Senderos",
-    duration: "4 - 5 Horas",
-    difficulty: "Moderado (4x4)",
+    duration: "6 a 8 Horas",
+    difficulty: "Aviso: Mayores y condición médica",
+    accessibility: "Aviso a mayores de edad y personas que padecen de alguna condición médica previa.",
     location: "Humedal Lagunas de Volcán",
     description: "Para quienes buscan aventura, paisajes increíbles y recorridos en 4x4.",
     longDescription: "Vive la emoción todoterreno subiendo a las lagunas más altas de Panamá. Una travesía 4x4 enérgica que te llevará a través de senderos volcánicos, bosques de niebla y humedales protegidos con vistas panorámicas únicas.",
@@ -94,13 +97,14 @@ const packages: PackageInfo[] = [
   },
   {
     id: "cascadas-finca-panama",
-    icon: "✦",
+    icon: "hiking",
     title: "Tour Aventura y experiencia de Cafe",
     price: "110$",
     numericPrice: 110,
     category: "Senderismo & Bosque Nuboso",
-    duration: "6 Horas",
-    difficulty: "Moderado",
+    duration: "Máx. 10 Horas según clima",
+    difficulty: "Advertencia: Terrenos difíciles",
+    accessibility: "Advertencia a mayores de edad y a personas que padecen de alguna condición física por terrenos difíciles.",
     location: "Finca Panamá & Mount Totumas",
     description: "Un recorrido pensado para disfrutar con tranquilidad, buena comida y paisajes únicos.",
     longDescription: "Un día de reconexión pura con la naturaleza. Visita caídas de agua cristalinas rodeadas de vegetación virgen, cafetales familiares y culmina con un almuerzo exclusivo en las faldas de la reserva de Mount Totumas.",
@@ -129,10 +133,10 @@ const packages: PackageInfo[] = [
   },
 ];
 
-const safariPackages: PackageInfo[] = [
+const fallbackSafariPackages: PackageInfo[] = [
   {
     id: "finca-mi-finquita",
-    icon: "☕",
+    icon: "local_cafe",
     title: "Finca Cafetal Mi Finquita",
     price: "150$",
     numericPrice: 150,
@@ -166,7 +170,7 @@ const safariPackages: PackageInfo[] = [
   },
   {
     id: "finca-santos-cafe",
-    icon: "🚙",
+    icon: "directions_car",
     title: "Finca Santos Café",
     price: "135$",
     numericPrice: 135,
@@ -200,7 +204,7 @@ const safariPackages: PackageInfo[] = [
   },
   {
     id: "finca-santa-teresa",
-    icon: "✦",
+    icon: "workspace_premium",
     title: "Finca Santa Teresa",
     price: "195$",
     numericPrice: 195,
@@ -234,7 +238,6 @@ const safariPackages: PackageInfo[] = [
   },
 ];
 
-*/
 
 interface PackageRow {
   id: string;
@@ -272,7 +275,7 @@ const mapPackageRow = (row: PackageRow): PackageInfo => {
 
   return {
     id: row.id,
-    icon: row.icon || "✦",
+    icon: row.icon || "explore",
     title: row.title,
     price: `${row.price}$`,
     numericPrice: row.price,
@@ -323,9 +326,15 @@ function App() {
         .select("*")
         .order("created_at", { ascending: true });
 
-      if (error) {
-        console.error("Error cargando paquetes:", error);
-        setPackagesError("No pudimos cargar los paquetes disponibles.");
+      if (error || !data || data.length === 0) {
+        if (error) {
+          console.error("Error cargando paquetes desde Supabase:", error);
+        }
+        if (fallbackRegularPackages.length === 0) {
+          setPackagesError("No pudimos cargar los paquetes disponibles.");
+        } else {
+          setAvailablePackages([...fallbackRegularPackages, ...fallbackSafariPackages]);
+        }
       } else {
         setAvailablePackages((data as PackageRow[]).map(mapPackageRow));
       }
@@ -710,7 +719,9 @@ function App() {
             onClick={() => setIsCartOpen(true)}
             aria-label="Ver reservas seleccionadas"
           >
-            <span>🛒 {text.cart}</span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <Icon name="shopping_bag" size={20} /> {text.cart}
+            </span>
             {reservations.length > 0 && (
               <span className="header-reserva-badge">{reservations.length}</span>
             )}
@@ -752,7 +763,9 @@ function App() {
                   <span className="about-section__eyebrow">Panel de administración</span>
                   <h2 style={{ margin: "0.4rem 0 0" }}>Operación de reservas</h2>
                 </div>
-                <button type="button" className="btn btn--secondary" onClick={handleAdminLogout}>Cerrar sesión</button>
+                <button type="button" className="btn btn--secondary" onClick={handleAdminLogout} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <Icon name="logout" size={18} /> Cerrar sesión
+                </button>
               </div>
 
               <nav aria-label="Secciones administrativas" style={{ display: "grid", gridTemplateColumns: "repeat(6, minmax(0, 1fr))", gap: "0.5rem", marginBottom: "1.5rem", borderBottom: "1px solid #e5e7eb", paddingBottom: "1rem" }}>
@@ -779,9 +792,13 @@ function App() {
               {adminSection === "calendar" ? (
                 <div>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem" }}>
-                    <button type="button" className="calendar-nav-btn" onClick={() => moveAdminMonth(-1)} aria-label="Mes anterior">‹</button>
+                    <button type="button" className="calendar-nav-btn" onClick={() => moveAdminMonth(-1)} aria-label="Mes anterior">
+                      <Icon name="chevron_left" size={20} />
+                    </button>
                     <h3 style={{ margin: 0, textTransform: "capitalize" }}>{formatAdminMonth()}</h3>
-                    <button type="button" className="calendar-nav-btn" onClick={() => moveAdminMonth(1)} aria-label="Mes siguiente">›</button>
+                    <button type="button" className="calendar-nav-btn" onClick={() => moveAdminMonth(1)} aria-label="Mes siguiente">
+                      <Icon name="chevron_right" size={20} />
+                    </button>
                   </div>
                   <div className="calendar-weekdays">
                     {["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"].map((day) => <span key={day}>{day}</span>)}
@@ -811,8 +828,12 @@ function App() {
                       <div style={{ display: "flex", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap" }}>
                         <div>
                           <h3 style={{ margin: 0 }}>{reservation.packageTitle}</h3>
-                          <p style={{ margin: "0.35rem 0", color: "#475467" }}>📅 {reservation.displayDate || reservation.date} · 👥 {reservation.peopleCount} personas</p>
-                          <p style={{ margin: 0, color: "#475467" }}>💰 ${reservation.totalPrice}</p>
+                          <p style={{ margin: "0.35rem 0", color: "#475467", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                            <Icon name="calendar_month" size={16} /> {reservation.displayDate || reservation.date} &nbsp;·&nbsp; <Icon name="group" size={16} /> {reservation.peopleCount} personas
+                          </p>
+                          <p style={{ margin: 0, color: "#475467", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                            <Icon name="payments" size={16} /> ${reservation.totalPrice}
+                          </p>
                         </div>
                         <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
                           <span style={{ background: reservation.status === "aprobado" || reservation.status === "completado" ? "#dcfce7" : reservation.status === "cancelado" || reservation.status === "rechazado" ? "#fee2e2" : "#e0f2fe", padding: "0.4rem 0.7rem", borderRadius: "999px", fontSize: "0.75rem", fontWeight: 700, color: "#0f172a" }}>
@@ -932,34 +953,50 @@ function App() {
               <p>No hay paquetes disponibles en este momento.</p>
             )}
             <div className="packages-grid">
-              {regularPackages.map((pkg) => (
-                <article key={pkg.id} className={`package-card ${pkg.className}`} tabIndex={0}>
-                  <div className="package-card__logo" aria-hidden="true">{pkg.icon}</div>
-                  <div className="package-card__heading">
-                    <h3>{pkg.title}</h3>
-                    <div className="package-card__price-box">
-                      <strong className="package-card__price">{pkg.price}</strong>
-                      <span className="package-card__per-person">por persona</span>
+              {regularPackages.map((pkg) => {
+                const accessInfo = getPackageAccessibility(pkg, language);
+                return (
+                  <article key={pkg.id} className={`package-card ${pkg.className}`} tabIndex={0}>
+                    <div className="package-card__heading">
+                      <h3>{pkg.title}</h3>
+                      <div className="package-card__price-box">
+                        <strong className="package-card__price">{pkg.price}</strong>
+                        <span className="package-card__per-person">{text.perPerson}</span>
+                      </div>
                     </div>
-                  </div>
-                  <p>{pkg.description}</p>
-                  <div className="package-card__details">
-                        <h4>{text.included}</h4>
-                    <ul>
-                      {pkg.includes.map((item) => (
-                        <li key={item}>{item}</li>
-                      ))}
-                    </ul>
-                    <button
-                      type="button"
-                      className="package-card__reserve"
-                      onClick={() => handleReserve(pkg)}
-                    >
-                      {text.reserve}
-                    </button>
-                  </div>
-                </article>
-              ))}
+                    <div className="package-card__meta-tags">
+                      <span className="package-card__tag">
+                        <Icon name="schedule" size={14} /> {accessInfo.durationText}
+                      </span>
+                      <span className={`package-card__tag package-card__tag--${accessInfo.level}`}>
+                        {accessInfo.level === "accessible" ? (
+                          <Icon name="check_circle" size={14} />
+                        ) : accessInfo.level === "advisory" ? (
+                          <Icon name="info" size={14} />
+                        ) : (
+                          <Icon name="warning" size={14} />
+                        )} {accessInfo.shortNotice}
+                      </span>
+                    </div>
+                    <p>{pkg.description}</p>
+                    <div className="package-card__details">
+                      <h4>{text.included}</h4>
+                      <ul>
+                        {pkg.includes.map((item) => (
+                          <li key={item}>{item}</li>
+                        ))}
+                      </ul>
+                      <button
+                        type="button"
+                        className="package-card__reserve"
+                        onClick={() => handleReserve(pkg)}
+                      >
+                        {text.reserve}
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           </Section>
 
@@ -969,34 +1006,50 @@ function App() {
             description={text.premiumDescription}
           >
             <div className="packages-grid">
-              {premiumPackages.map((pkg) => (
-                <article key={pkg.id} className={`package-card ${pkg.className}`} tabIndex={0}>
-                  <div className="package-card__logo" aria-hidden="true">{pkg.icon}</div>
-                  <div className="package-card__heading">
-                    <h3>{pkg.title}</h3>
-                    <div className="package-card__price-box">
-                      <strong className="package-card__price">{pkg.price}</strong>
-                      <span className="package-card__per-person">por persona</span>
+              {premiumPackages.map((pkg) => {
+                const accessInfo = getPackageAccessibility(pkg, language);
+                return (
+                  <article key={pkg.id} className={`package-card ${pkg.className}`} tabIndex={0}>
+                    <div className="package-card__heading">
+                      <h3>{pkg.title}</h3>
+                      <div className="package-card__price-box">
+                        <strong className="package-card__price">{pkg.price}</strong>
+                        <span className="package-card__per-person">{text.perPerson}</span>
+                      </div>
                     </div>
-                  </div>
-                  <p>{pkg.description}</p>
-                  <div className="package-card__details">
-                        <h4>{text.included}</h4>
-                    <ul>
-                      {pkg.includes.map((item) => (
-                        <li key={item}>{item}</li>
-                      ))}
-                    </ul>
-                    <button
-                      type="button"
-                      className="package-card__reserve"
-                      onClick={() => handleReserve(pkg)}
-                    >
-                      {text.reserve}
-                    </button>
-                  </div>
-                </article>
-              ))}
+                    <div className="package-card__meta-tags">
+                      <span className="package-card__tag">
+                        <Icon name="schedule" size={14} /> {accessInfo.durationText}
+                      </span>
+                      <span className={`package-card__tag package-card__tag--${accessInfo.level}`}>
+                        {accessInfo.level === "accessible" ? (
+                          <Icon name="check_circle" size={14} />
+                        ) : accessInfo.level === "advisory" ? (
+                          <Icon name="info" size={14} />
+                        ) : (
+                          <Icon name="warning" size={14} />
+                        )} {accessInfo.shortNotice}
+                      </span>
+                    </div>
+                    <p>{pkg.description}</p>
+                    <div className="package-card__details">
+                      <h4>{text.included}</h4>
+                      <ul>
+                        {pkg.includes.map((item) => (
+                          <li key={item}>{item}</li>
+                        ))}
+                      </ul>
+                      <button
+                        type="button"
+                        className="package-card__reserve"
+                        onClick={() => handleReserve(pkg)}
+                      >
+                        {text.reserve}
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           </Section>
 
@@ -1051,7 +1104,9 @@ function App() {
           >
             <div className="cart-modal__header">
               <div className="cart-modal__title-box">
-                <span className="cart-modal__icon">🛒</span>
+                <span className="cart-modal__icon">
+                  <Icon name="shopping_cart" size={24} />
+                </span>
                 <div>
                   <h3>{text.reservations}</h3>
                   <p>{reservations.length} {reservations.length === 1 ? text.selectedPackage : text.selectedPackages}</p>
@@ -1063,14 +1118,16 @@ function App() {
                 onClick={() => setIsCartOpen(false)}
                 aria-label="Cerrar ventana de reserva"
               >
-                ✕
+                <Icon name="close" size={20} />
               </button>
             </div>
 
             <div className="cart-modal__body">
               {reservations.length === 0 ? (
                 <div className="cart-empty-state">
-                  <span className="cart-empty-icon">🌿</span>
+                  <span className="cart-empty-icon">
+                    <Icon name="shopping_bag" size={48} style={{ color: "var(--verde-forestal)" }} />
+                  </span>
                   <h4>Aún no has agregado paquetes</h4>
                   <p>Explora nuestros tours en Tierras Altas y agrega los que desees reservar.</p>
                   <button
@@ -1095,8 +1152,12 @@ function App() {
                       <div className="cart-item-info">
                         <h4>{item.packageTitle}</h4>
                         <div className="cart-item-meta">
-                          <span>📅 {item.displayDate || item.date}</span>
-                          <span>👥 {item.peopleCount} personas</span>
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                            <Icon name="calendar_month" size={14} /> {item.displayDate || item.date}
+                          </span>
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                            <Icon name="group" size={14} /> {item.peopleCount} personas
+                          </span>
                         </div>
                         <div className="cart-item-subtotal">
                           <span>{item.peopleCount} × {item.pricePerPerson}$</span>
@@ -1110,7 +1171,7 @@ function App() {
                         title="Eliminar de mi reserva"
                         aria-label={`Eliminar ${item.packageTitle}`}
                       >
-                        🗑️
+                        <Icon name="delete" size={20} />
                       </button>
                     </div>
                   ))}
@@ -1129,8 +1190,9 @@ function App() {
                     type="button"
                     className="btn btn--primary btn--full cart-confirm-btn"
                     onClick={handleGoToCheckout}
+                    style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}
                   >
-                    {text.checkout} →
+                    {text.checkout} <Icon name="arrow_forward" size={18} />
                   </button>
                   <button
                     type="button"

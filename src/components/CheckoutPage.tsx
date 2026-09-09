@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import type { ReservationItem, PackageInfo } from "./PackageDetail";
 import { supabase } from "../lib/supabase";
 import { translate, type Language } from "../i18n";
+import Icon from "./Icon";
 
 interface CheckoutPageProps {
   reservations: ReservationItem[];
@@ -232,7 +233,7 @@ export function CheckoutPage({
     <div className="package-detail-page">
       <header className="package-detail__hero-topbar" style={{ padding: "1.5rem 2rem", background: "#112217" }}>
           <button type="button" className="btn btn--secondary package-detail__back-btn" onClick={onBack}>
-          ← {language === "es" ? "Volver" : "Back"}
+          <Icon name="arrow_back" size={18} style={{ marginRight: 6 }} /> {language === "es" ? "Volver" : "Back"}
         </button>
       </header>
 
@@ -292,7 +293,9 @@ export function CheckoutPage({
                     <img src={item.packageImage} alt={item.packageTitle} style={{ width: "60px", height: "60px", objectFit: "cover", borderRadius: "8px" }} />
                     <div>
                       <h4 style={{ margin: 0, fontSize: "1.1rem" }}>{item.packageTitle}</h4>
-                      <span style={{ fontSize: "0.85rem", color: "#666" }}>📅 {item.displayDate} | 👥 {item.peopleCount} personas</span>
+                      <span style={{ fontSize: "0.85rem", color: "#666", display: "inline-flex", alignItems: "center", gap: 6, marginTop: 4 }}>
+                        <Icon name="calendar_month" size={16} /> {item.displayDate} &nbsp;|&nbsp; <Icon name="group" size={16} /> {item.peopleCount} personas
+                      </span>
                     </div>
                   </div>
 
@@ -336,8 +339,8 @@ export function CheckoutPage({
                   <span style={{ fontSize: "0.9rem", color: "#666" }}>Total a pagar:</span>
                   <div style={{ fontSize: "1.5rem", fontWeight: "bold", color: "#112217" }}>${totalCartPrice}</div>
                 </div>
-                <button type="submit" className="btn btn--primary" style={{ padding: "0.85rem 2rem" }}>
-                  Continuar al pago →
+                <button type="submit" className="btn btn--primary" style={{ padding: "0.85rem 2rem", display: "inline-flex", alignItems: "center", gap: 8 }}>
+                  Continuar al pago <Icon name="arrow_forward" size={18} />
                 </button>
               </div>
             </form>
@@ -353,15 +356,21 @@ export function CheckoutPage({
             </div>
 
             <div style={{ background: "#fdfefe", border: "1px solid #dcdcdc", padding: "1.5rem", borderRadius: "12px", marginBottom: "2rem" }}>
-              <h4 style={{ margin: "0 0 1rem 0" }}>💳 Datos para realizar el pago:</h4>
+              <h4 style={{ margin: "0 0 1rem 0", display: "inline-flex", alignItems: "center", gap: 8 }}>
+                <Icon name="credit_card" size={22} style={{ color: "#166534" }} /> Datos para realizar el pago:
+              </h4>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem" }}>
                 <div style={{ padding: "1rem", background: "#fff", borderRadius: "8px", border: "1px solid #eee" }}>
-                  <strong>📱 Yappy (Banco General)</strong>
+                  <strong style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                    <Icon name="smartphone" size={18} style={{ color: "#166534" }} /> Yappy (Banco General)
+                  </strong>
                   <p style={{ margin: "0.5rem 0 0", color: "#555" }}>Directorio: <strong>ConoceTierrasAltas</strong></p>
                   <p style={{ margin: "0.2rem 0 0", color: "#555" }}>Celular: <strong>+507 6000-0000</strong></p>
                 </div>
                 <div style={{ padding: "1rem", background: "#fff", borderRadius: "8px", border: "1px solid #eee" }}>
-                  <strong>🏦 Transferencia Bancaria</strong>
+                  <strong style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                    <Icon name="account_balance" size={18} style={{ color: "#166534" }} /> Transferencia Bancaria
+                  </strong>
                   <p style={{ margin: "0.5rem 0 0", color: "#555" }}>Banco: <strong>Banco General (Cuenta Corriente)</strong></p>
                   <p style={{ margin: "0.2rem 0 0", color: "#555" }}>Número: <strong>03-01-01-999999-9</strong></p>
                   <p style={{ margin: "0.2rem 0 0", color: "#555" }}>Nombre: <strong>Conoce Tierras Altas S.A.</strong></p>
@@ -405,11 +414,11 @@ export function CheckoutPage({
               </div>
 
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <button type="button" className="btn btn--secondary" onClick={() => setStep("attendees")}>
-                  ← Volver a asistentes
+                <button type="button" className="btn btn--secondary" onClick={() => setStep("attendees")} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <Icon name="arrow_back" size={18} /> Volver a asistentes
                 </button>
-                <button type="submit" className="btn btn--primary" disabled={isSubmitting} style={{ padding: "0.85rem 2.5rem" }}>
-                  {isSubmitting ? "Enviando registro..." : "Enviar comprobante y registrarme 🚀"}
+                <button type="submit" className="btn btn--primary" disabled={isSubmitting} style={{ padding: "0.85rem 2.5rem", display: "inline-flex", alignItems: "center", gap: 8 }}>
+                  {isSubmitting ? "Enviando registro..." : <>Enviar comprobante y registrarme <Icon name="rocket_launch" size={18} /></>}
                 </button>
               </div>
             </form>
@@ -418,7 +427,9 @@ export function CheckoutPage({
 
         {step === "success" && (
           <div className="checkout-card" style={{ background: "#fff", borderRadius: "16px", padding: "3rem 2rem", textAlign: "center", boxShadow: "0 10px 30px rgba(0,0,0,0.08)" }}>
-            <div style={{ fontSize: "4rem", marginBottom: "1rem" }}>🎉</div>
+            <div style={{ marginBottom: "1rem", display: "flex", justifyContent: "center" }}>
+              <Icon name="celebration" size={64} style={{ color: "#2b7a4b" }} />
+            </div>
             <h2>¡Registro enviado con éxito!</h2>
             <p style={{ color: "#666", maxWidth: "600px", margin: "1rem auto 2rem" }}>
               Hemos recibido tu comprobante de pago y la información de los asistentes. Se ha enviado un correo de confirmación provisional a <strong>{clientEmail}</strong>.
